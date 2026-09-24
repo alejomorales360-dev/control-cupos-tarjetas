@@ -257,11 +257,20 @@
           <!-- TEAMS -->
           <div class="canal">
             <div class="canal-h"><span class="canal-ico">🟪</span><div><b>Canal de Teams</b> <span class="sub">(opcional)</span><div class="sub">El resumen diario publicado en un canal</div></div><span class="estado" id="st-teams"></span></div>
-            <details><summary>Cómo obtener el correo del canal</summary>
+            <p class="hint" style="margin:0 0 8px">Teams no muestra correos en sus chats: tu correo corporativo ya recibe todo en Outlook. Para verlo también en Teams:</p>
+            <details><summary>Opción A (recomendada): Power Automate → mensaje en tu chat de Teams</summary>
               <ol class="pasos">
-                <li>En Teams, abre el canal → <b>•••</b> → <b>Obtener dirección de correo electrónico</b>.</li>
-                <li>En <b>Configuración avanzada</b>, permite que <b>cualquiera</b> pueda enviar correos (las alertas salen desde la cuenta de Google del proyecto).</li>
-                <li>Copia la dirección (termina en <code>teams.ms</code>) y pégala aquí.</li>
+                <li>Entra a <b>make.powerautomate.com</b> con tu cuenta corporativa → <b>Crear → Flujo de nube automatizado</b>.</li>
+                <li>Disparador: <b>“Cuando llega un nuevo correo electrónico (V3)”</b> (Office 365 Outlook) con <b>De:</b> el Gmail que envía las alertas.</li>
+                <li>Acción: <b>“Publicar mensaje en un chat o canal”</b> (Teams) → Flow bot → Chat con Flow bot → tu correo; en el mensaje pon Asunto y Cuerpo.</li>
+                <li>Guarda. Este campo se deja vacío.</li>
+              </ol>
+            </details>
+            <details><summary>Opción B: correo de un canal de Teams (termina en teams.ms)</summary>
+              <ol class="pasos">
+                <li>En Teams, crea un canal (por ejemplo “Alertas de cupos”) → <b>•••</b> → <b>Obtener dirección de correo electrónico</b>.</li>
+                <li>En <b>Configuración avanzada</b>, permite que <b>cualquiera</b> envíe correos.</li>
+                <li>Pega aquí esa dirección.</li>
               </ol>
             </details>
             <div class="field"><label>Correo del canal</label><input id="cfg-teams-email" placeholder="xxxx.empresa.com@amer.teams.ms"></div>
@@ -956,7 +965,7 @@
   function validarTeams() {
     var t = $('cfg-teams-email').value.trim();
     if (t && !/teams\.ms$/i.test(t)) {
-      toast('En "Canal de Teams" va solo la dirección de un canal (termina en teams.ms). Tu correo corporativo va en "Correo(s)". Deja el campo de Teams vacío si no usarás un canal.', true);
+      toast('Aquí solo va la dirección de un canal de Teams (termina en teams.ms). Tu correo corporativo ya recibe todo en "Correo(s)". Para ver las alertas en tu chat de Teams usa la Opción A (Power Automate) y deja este campo vacío.', true);
       $('cfg-teams-email').focus();
       return false;
     }
