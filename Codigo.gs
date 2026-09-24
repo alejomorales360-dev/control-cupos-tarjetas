@@ -59,6 +59,7 @@ const TRIGGER_FN = 'revisarVencimientos';
  * Crea la planilla (si no existe), las hojas y el disparador diario.
  */
 function setup() {
+  exigirDueno_();
   const ss = getSS_();
   ensureSheets_(ss);
   const props = PropertiesService.getScriptProperties();
@@ -71,6 +72,7 @@ function setup() {
   log_('SETUP', 'Planilla: ' + ss.getUrl());
   Logger.log('Listo. Planilla: ' + ss.getUrl());
   Logger.log('Alertas a: ' + props.getProperty('EMAIL_ALERTAS'));
+  if (!props.getProperty('LOGIN_HASH')) generarClaveAcceso();
 }
 
 function getSS_() {
@@ -118,38 +120,157 @@ function instalarTrigger_(hora) {
 // ════════════════════════════════════════════════════════════════
 
 function doGet() {
-  if (!usuarioAutorizado_()) return paginaAccesoDenegado_();
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle(APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 // ════════════════════════════════════════════════════════════════
-// CONTROL DE ACCESO
+// LOGIN (usuario + clave propios de la app)
 // ════════════════════════════════════════════════════════════════
 //
-// Solo el dueño del proyecto (la cuenta que implementa la web app) puede
-// ver o modificar datos, sin importar cómo se haya configurado "Quién tiene
-// acceso" en la implementación. Cuando otra persona abre la app, Google no
-// entrega su correo (o entrega uno distinto) y se le niega el acceso.
+// La web app se implementa con acceso "Cualquier persona" para poder entrar
+// desde cualquier equipo. La página en sí no contiene datos: todo lo que
+// lee o modifica datos exige un token de sesión válido.
+//
+//   - La clave se guarda como hash SHA-256 iterado con sal (nunca en texto).
+//   - Las sesiones se guardan como hash del token, con vencimiento.
+//   - Tras MAX_FALLOS intentos fallidos se bloquea el login BLOQUEO_MIN minutos.
+//   - La clave inicial se genera ejecutando generarClaveAcceso() en el editor.
 
-function usuarioAutorizado_() {
+const SESION_HORAS_CORTA = 12;
+const SESION_DIAS_LARGA  = 30;
+const MAX_FALLOS         = 8;
+const BLOQUEO_MIN        = 15;
+const HASH_ITER          = 1000;
+
+/** Verdadero solo cuando la función la ejecuta el dueño (p. ej. desde el editor). */
+function esDueno_() {
   let activo = '', dueno = '';
   try { activo = (Session.getActiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
   try { dueno = (Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
   return !!activo && activo === dueno;
 }
 
-function exigirAcceso_() {
-  if (!usuarioAutorizado_()) throw new Error('Acceso no autorizado.');
+function exigirDueno_() {
+  if (!esDueno_()) throw new Error('Esta función solo se puede ejecutar desde el editor de Apps Script.');
 }
 
-function paginaAccesoDenegado_() {
-  return HtmlService.createHtmlOutput(
-    '<div style="font-family:Arial,sans-serif;max-width:420px;margin:15vh auto;padding:24px;text-align:center">' +
-    '<div style="font-size:48px">🔒</div><h2>Acceso restringido</h2>' +
-    '<p style="color:#555">Esta aplicación es privada. Inicia sesión con la cuenta autorizada.</p></div>'
-  ).setTitle('Acceso restringido').addMetaTag('viewport', 'width=device-width, initial-scale=1');
+function sha256_(texto) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, texto, Utilities.Charset.UTF_8));
+}
+
+function hashClave_(clave, sal) {
+  let h = sal + ':' + clave;
+  for (let i = 0; i < HASH_ITER; i++) h = sha256_(h + ':' + sal);
+  return h;
+}
+
+function claveAleatoria_(largo) {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let out = '';
+  while (out.length < largo) {
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid()).forEach(function (b) {
+      if (out.length < largo) out += abc[(b + 256) % abc.length];
+    });
+  }
+  return out;
+}
+
+function guardarCredenciales_(usuario, clave) {
+  const sal = Utilities.getUuid();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperties({
+    LOGIN_USUARIO: String(usuario).trim().toLowerCase(),
+    LOGIN_SAL: sal,
+    LOGIN_HASH: hashClave_(clave, sal)
+  });
+  borrarSesiones_();
+}
+
+/**
+ * Ejecutar desde el editor para crear (o resetear si la olvidaste) la clave.
+ * La clave nueva aparece en el Registro de ejecución. Cierra todas las sesiones.
+ */
+function generarClaveAcceso() {
+  exigirDueno_();
+  const props = PropertiesService.getScriptProperties();
+  const usuario = props.getProperty('LOGIN_USUARIO') || 'admin';
+  const clave = claveAleatoria_(12);
+  guardarCredenciales_(usuario, clave);
+  CacheService.getScriptCache().remove('LOGIN_FALLOS');
+  log_('CLAVE_GENERADA', 'Clave regenerada desde el editor');
+  Logger.log('Usuario: ' + usuario);
+  Logger.log('Clave:   ' + clave);
+  Logger.log('Entra a la app y cámbiala en Configuración → Acceso.');
+}
+
+function iniciarSesion(usuario, clave, recordar) {
+  const cache = CacheService.getScriptCache();
+  const fallos = Number(cache.get('LOGIN_FALLOS') || 0);
+  if (fallos >= MAX_FALLOS) throw new Error('Demasiados intentos fallidos. Espera ' + BLOQUEO_MIN + ' minutos.');
+
+  const p = PropertiesService.getScriptProperties().getProperties();
+  if (!p.LOGIN_HASH) throw new Error('La clave aún no está configurada. Ejecuta generarClaveAcceso() en el editor de Apps Script.');
+
+  const okUsuario = String(usuario || '').trim().toLowerCase() === p.LOGIN_USUARIO;
+  const okClave = hashClave_(String(clave || ''), p.LOGIN_SAL) === p.LOGIN_HASH;
+  if (!okUsuario || !okClave) {
+    cache.put('LOGIN_FALLOS', String(fallos + 1), BLOQUEO_MIN * 60);
+    Utilities.sleep(1000);
+    log_('LOGIN_FALLIDO', 'Usuario: ' + String(usuario || '').slice(0, 60));
+    throw new Error('Usuario o clave incorrectos.');
+  }
+  cache.remove('LOGIN_FALLOS');
+
+  limpiarSesionesVencidas_();
+  const token = Utilities.getUuid() + Utilities.getUuid();
+  const vence = Date.now() + (recordar ? SESION_DIAS_LARGA * 86400000 : SESION_HORAS_CORTA * 3600000);
+  PropertiesService.getScriptProperties().setProperty('SES_' + sha256_(token), String(vence));
+  log_('LOGIN', recordar ? 'Sesión de ' + SESION_DIAS_LARGA + ' días' : 'Sesión de ' + SESION_HORAS_CORTA + ' horas');
+  return { token: token, vence: vence, usuario: p.LOGIN_USUARIO };
+}
+
+function cerrarSesion(token) {
+  if (token) PropertiesService.getScriptProperties().deleteProperty('SES_' + sha256_(String(token)));
+  return true;
+}
+
+function exigirSesion_(token) {
+  if (!token) throw new Error('SESION_INVALIDA');
+  const key = 'SES_' + sha256_(String(token));
+  const props = PropertiesService.getScriptProperties();
+  const vence = Number(props.getProperty(key) || 0);
+  if (!vence || vence < Date.now()) {
+    if (vence) props.deleteProperty(key);
+    throw new Error('SESION_INVALIDA');
+  }
+}
+
+function limpiarSesionesVencidas_() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties(), ahora = Date.now();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('SES_') === 0 && Number(all[k]) < ahora) props.deleteProperty(k);
+  });
+}
+
+function borrarSesiones_() {
+  const props = PropertiesService.getScriptProperties();
+  Object.keys(props.getProperties()).forEach(function (k) { if (k.indexOf('SES_') === 0) props.deleteProperty(k); });
+}
+
+function cambiarCredenciales(token, actual, nuevoUsuario, nuevaClave) {
+  exigirSesion_(token);
+  const p = PropertiesService.getScriptProperties().getProperties();
+  if (hashClave_(String(actual || ''), p.LOGIN_SAL) !== p.LOGIN_HASH) throw new Error('La clave actual no es correcta.');
+  const usuario = String(nuevoUsuario || '').trim().toLowerCase() || p.LOGIN_USUARIO;
+  if (!/^[a-z0-9._@-]{3,60}$/.test(usuario)) throw new Error('Usuario inválido (3 a 60 caracteres: letras, números, . _ - @).');
+  const clave = String(nuevaClave || '');
+  if (clave.length < 8) throw new Error('La nueva clave debe tener al menos 8 caracteres.');
+  guardarCredenciales_(usuario, clave);
+  log_('CLAVE_CAMBIADA', 'Usuario: ' + usuario);
+  return true; // todas las sesiones quedan cerradas; hay que volver a entrar
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -307,8 +428,8 @@ function aumentoDTO_(a, hoy, diasAviso, clientesById) {
 // API PARA LA INTERFAZ (google.script.run)
 // ════════════════════════════════════════════════════════════════
 
-function obtenerDatos() {
-  exigirAcceso_();
+function obtenerDatos(token) {
+  exigirSesion_(token);
   const hoy = hoyISO_();
   const diasAviso = getConfig_().diasAviso;
   const clientes = leer_(SH_CLIENTES);
@@ -348,8 +469,8 @@ function obtenerDatos() {
   };
 }
 
-function guardarCliente(c) {
-  exigirAcceso_();
+function guardarCliente(token, c) {
+  exigirSesion_(token);
   return conLock_(function () {
     const nombre = String(c.nombre || '').trim();
     if (!nombre) throw new Error('El nombre es obligatorio.');
@@ -390,8 +511,8 @@ function guardarCliente(c) {
   });
 }
 
-function guardarAumento(a) {
-  exigirAcceso_();
+function guardarAumento(token, a) {
+  exigirSesion_(token);
   return conLock_(function () {
     const cliente = leer_(SH_CLIENTES).filter(function (x) { return x.ID === a.idCliente; })[0];
     if (!cliente) throw new Error('Selecciona un cliente válido.');
@@ -436,18 +557,18 @@ function guardarAumento(a) {
   });
 }
 
-function marcarCortado(id, nota) {
-  exigirAcceso_();
+function marcarCortado(token, id, nota) {
+  exigirSesion_(token);
   return cerrarAumento_(id, ESTADO_CORTADO, nota);
 }
 
-function anularAumento(id, nota) {
-  exigirAcceso_();
+function anularAumento(token, id, nota) {
+  exigirSesion_(token);
   return cerrarAumento_(id, ESTADO_ANULADO, nota);
 }
 
-function reabrirAumento(id) {
-  exigirAcceso_();
+function reabrirAumento(token, id) {
+  exigirSesion_(token);
   return conLock_(function () {
     const a = leer_(SH_AUMENTOS).filter(function (x) { return x.ID === id; })[0];
     if (!a) throw new Error('Aumento no encontrado.');
@@ -495,8 +616,8 @@ function getConfig_() {
   };
 }
 
-function obtenerConfig() {
-  exigirAcceso_();
+function obtenerConfig(token) {
+  exigirSesion_(token);
   const c = getConfig_();
   const trigger = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === TRIGGER_FN; });
   return {
@@ -511,8 +632,8 @@ function obtenerConfig() {
   };
 }
 
-function guardarConfig(cfg) {
-  exigirAcceso_();
+function guardarConfig(token, cfg) {
+  exigirSesion_(token);
   const props = PropertiesService.getScriptProperties();
   const emails = String(cfg.email || '').split(/[,;\s]+/).filter(String);
   emails.forEach(function (e) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Correo inválido: ' + e); });
@@ -526,15 +647,24 @@ function guardarConfig(cfg) {
   if (cfg.telegramChatId !== undefined && !cfg.borrarTelegram) props.setProperty('TELEGRAM_CHAT_ID', String(cfg.telegramChatId).trim());
   instalarTrigger_(hora);
   log_('CONFIG', 'Alertas: ' + emails.join(',') + ' · aviso ' + cfg.diasAviso + ' días · hora ' + hora);
-  return obtenerConfig();
+  return obtenerConfig(token);
 }
 
 // ════════════════════════════════════════════════════════════════
 // REVISIÓN DIARIA Y ALERTAS
 // ════════════════════════════════════════════════════════════════
 
-/** Lo ejecuta el disparador diario. También se puede correr a mano. */
+/** Lo ejecuta el disparador diario (una vez cada 30 min como máximo). */
 function revisarVencimientos() {
+  // Es pública para que la llame el disparador diario; el freno evita que
+  // alguien la invoque repetidamente desde fuera para generar correos.
+  const cache = CacheService.getScriptCache();
+  if (cache.get('REVISION_RECIENTE')) return { enviado: false, total: 0, omitido: true };
+  cache.put('REVISION_RECIENTE', '1', 30 * 60);
+  return revisarVencimientos_();
+}
+
+function revisarVencimientos_() {
   const hoy = hoyISO_();
   const cfg = getConfig_();
   const clientes = leer_(SH_CLIENTES);
@@ -576,14 +706,14 @@ function revisarVencimientos() {
 }
 
 /** Botón "Revisar ahora" de la interfaz. */
-function revisarAhora() {
-  exigirAcceso_();
-  return revisarVencimientos();
+function revisarAhora(token) {
+  exigirSesion_(token);
+  return revisarVencimientos_();
 }
 
 /** Botón "Enviar prueba" de la interfaz. */
-function enviarPrueba() {
-  exigirAcceso_();
+function enviarPrueba(token) {
+  exigirSesion_(token);
   const cfg = getConfig_();
   const hoy = hoyISO_();
   const ejemplo = {
@@ -713,8 +843,8 @@ function enviarTelegram_(cfg, texto) {
  * Pasos: abre tu bot en Telegram, envíale cualquier mensaje y luego pulsa
  * "Detectar chat" en la app.
  */
-function detectarChatTelegram() {
-  exigirAcceso_();
+function detectarChatTelegram(token) {
+  exigirSesion_(token);
   const cfg = getConfig_();
   if (!cfg.telegramToken) throw new Error('Primero guarda el token del bot.');
   const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + cfg.telegramToken + '/getUpdates', { muteHttpExceptions: true });

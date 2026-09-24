@@ -1,6 +1,6 @@
 # 💳 Control de Cupos Temporales de Tarjetas
 
-**Entrar a la app:** <https://alejomorales360-dev.github.io/control-cupos-tarjetas/> (redirige a la web app de Apps Script, que pide iniciar sesión con la cuenta dueña)
+**Entrar a la app:** <https://alejomorales360-dev.github.io/control-cupos-tarjetas/> (redirige a la web app, que pide usuario y clave)
 
 App web en Google Apps Script para llevar el registro de clientes, su **cupo base** y los **aumentos temporales de cupo** (monto + rango de fechas). Todos los días revisa los vencimientos y te **envía una alerta** para que hagas el trámite de corte con el banco.
 
@@ -36,8 +36,8 @@ App web en Google Apps Script para llevar el registro de clientes, su **cupo bas
 2. Reemplaza el contenido de `Código.gs` por el de [`Codigo.gs`](Codigo.gs).
 3. **Archivo → Nuevo → HTML**, nómbralo `index` y pega el contenido de [`index.html`](index.html).
 4. ⚙️ **Configuración del proyecto** → marca *"Mostrar el archivo de manifiesto appsscript.json"* y pega el contenido de [`appsscript.json`](appsscript.json). Ajusta `timeZone` a tu país si no es Ecuador (p. ej. `America/Bogota`, `America/Lima`, `America/Mexico_City`, `America/Santiago`).
-5. En el editor, selecciona la función **`setup`** y pulsa **Ejecutar**. Acepta los permisos. Esto crea la planilla y el disparador diario (la URL de la planilla aparece en el registro).
-6. **Implementar → Nueva implementación → Aplicación web**. *Ejecutar como:* Yo. *Quién tiene acceso:* Solo yo. Copia la URL y guárdala en favoritos / pantalla de inicio del celular.
+5. En el editor, selecciona la función **`setup`** y pulsa **Ejecutar**. Acepta los permisos. Esto crea la planilla, el disparador diario y la clave de acceso inicial (usuario, clave y URL de la planilla aparecen en el registro).
+6. **Implementar → Nueva implementación → Aplicación web**. *Ejecutar como:* Yo. *Quién tiene acceso:* Cualquier persona (la app se protege con su propio login). Copia la URL y guárdala en favoritos / pantalla de inicio del celular.
 
 ### Opción B — Con `clasp`
 ```bash
@@ -63,14 +63,19 @@ En la app → pestaña **Configuración**:
 
 Usa **Revisar vencimientos ahora** para forzar la revisión sin esperar al día siguiente.
 
-## Seguridad
+## Seguridad y acceso (login)
 
-- **Doble candado de acceso:**
-  1. La implementación debe tener **Quién tiene acceso: Solo yo** (Implementar → Gestionar implementaciones → ✏️). Lo que se elige ahí manda sobre `appsscript.json`.
-  2. Además, el código verifica en cada pantalla y cada operación que quien entra sea la cuenta dueña del proyecto; cualquier otra persona ve "🔒 Acceso restringido" y no puede leer ni modificar datos, aunque la implementación quede abierta por error.
-- Comprobación: abre el enlace en una ventana de incógnito (sin sesión) o con otra cuenta de Google → no debe mostrar la app.
+La app tiene **login propio con usuario y clave**, para entrar desde cualquier equipo o celular sin depender de una cuenta de Google.
+
+- **Implementación:** *Ejecutar como:* **Yo** · *Quién tiene acceso:* **Cualquier persona**. La pantalla de login es pública, pero **ningún dato se entrega sin sesión válida**: cada función del servidor exige el token de sesión.
+- **Clave inicial:** en el editor de Apps Script ejecuta **`generarClaveAcceso`**. En *Registro de ejecución* aparecen el usuario (`admin`) y una clave aleatoria. Entra y cámbiala en **Configuración → Acceso**.
+- **¿Olvidaste la clave?** Ejecuta de nuevo `generarClaveAcceso` en el editor: genera una nueva y cierra todas las sesiones. Solo funciona desde el editor (cuenta dueña), nunca desde la web.
+- La clave se guarda como **hash SHA-256 iterado con sal** en las *Script Properties*; nunca en texto plano ni en la planilla.
+- Sesiones de **12 horas**, o **30 días** con "Mantener sesión iniciada". **Salir** cierra la sesión en el servidor. Cambiar la clave cierra todas las sesiones.
+- **Anti fuerza bruta:** tras 8 intentos fallidos el login se bloquea 15 minutos.
+- Usa una clave larga y única (idealmente de un gestor de contraseñas): quien la tenga ve todos los datos.
 - Solo se guardan los **últimos 4 dígitos** de la tarjeta. No registres números completos, CVV ni fechas de expiración.
-- El token de Telegram se guarda en las *Script Properties* del proyecto, no en la planilla.
+- El token de Telegram se guarda en las *Script Properties*, no en la planilla ni en el repositorio.
 
 ## Archivos
 
@@ -86,7 +91,7 @@ Editar el código no cambia la versión que está en la URL `/exec`. Después de
 
 ## Enlace de GitHub Pages
 
-`site/index.html` es una página mínima publicada en GitHub Pages que redirige a la URL `/exec` de Apps Script. La app en sí (y los datos) siguen protegidos por el inicio de sesión de Google.
+`site/index.html` es una página mínima publicada en GitHub Pages que redirige a la URL `/exec` de Apps Script. Los datos siguen protegidos por el login de la app.
 
 - Se publica sola con el workflow `.github/workflows/pages.yml` cada vez que cambia `site/`.
 - Activación (una sola vez): **Settings → Pages → Build and deployment → Source: GitHub Actions**.

@@ -72,6 +72,13 @@
   .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--primary); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 14px; display: none; z-index: 10; max-width: calc(100vw - 32px); }
   #toast.err { background: var(--red); }
+  #login { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 5; }
+  #login.show { display: flex; }
+  #login form { background: var(--card); border-radius: 16px; padding: 28px 22px; width: 100%; max-width: 360px; }
+  #login .logo { font-size: 44px; text-align: center; }
+  #login h2 { text-align: center; margin: 6px 0 20px; }
+  #login .err { color: var(--red); font-size: 14px; min-height: 20px; margin-bottom: 8px; }
+  #login button[type=submit] { width: 100%; padding: 12px; }
   #loading { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #60a5fa, transparent); background-size: 200% 100%; animation: load 1s linear infinite; display: none; }
   @keyframes load { from { background-position: 200% 0; } to { background-position: -200% 0; } }
   .preview { background: var(--gray-bg); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
@@ -99,7 +106,10 @@
     <h1>💳 Control de Cupos</h1>
     <div class="hoy" id="hoy"></div>
   </div>
-  <button class="small" onclick="cargar()">↻ Actualizar</button>
+  <div class="actions">
+    <button class="small" onclick="cargar()">↻ Actualizar</button>
+    <button class="small" onclick="salir()">Salir</button>
+  </div>
 </header>
 <nav>
   <button data-tab="panel" class="active">Panel</button>
@@ -224,6 +234,21 @@
       </form>
     </div>
     <div class="panel">
+      <h2>Acceso</h2>
+      <form onsubmit="cambiarCredenciales(event)">
+        <div class="grid2">
+          <div class="field"><label>Nuevo usuario (opcional)</label><input id="k-usuario" autocomplete="username" autocapitalize="none" placeholder="Deja vacío para no cambiarlo"></div>
+          <div class="field"><label>Clave actual *</label><input id="k-actual" type="password" autocomplete="current-password" required></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Nueva clave * (mínimo 8 caracteres)</label><input id="k-nueva" type="password" autocomplete="new-password" minlength="8" required></div>
+          <div class="field"><label>Repite la nueva clave *</label><input id="k-nueva2" type="password" autocomplete="new-password" minlength="8" required></div>
+        </div>
+        <div class="hint" style="margin-bottom:12px">Al cambiarla se cierran todas las sesiones abiertas (en todos tus dispositivos).</div>
+        <button type="submit" class="primary">Cambiar clave</button>
+      </form>
+    </div>
+    <div class="panel">
       <h2>Base de datos</h2>
       <p class="status-line">Todos los datos viven en una planilla de Google Sheets (hojas CLIENTES, AUMENTOS e HISTORIAL).</p>
       <p><a id="link-planilla" href="#" target="_blank">Abrir planilla ↗</a></p>
@@ -297,6 +322,19 @@
   </form>
 </dialog>
 
+<!-- LOGIN -->
+<div id="login">
+  <form onsubmit="entrar(event)">
+    <div class="logo">💳</div>
+    <h2>Control de Cupos</h2>
+    <div class="field"><label>Usuario</label><input id="l-usuario" autocomplete="username" autocapitalize="none" required></div>
+    <div class="field"><label>Clave</label><input id="l-clave" type="password" autocomplete="current-password" required></div>
+    <div class="field check"><input type="checkbox" id="l-recordar"><label for="l-recordar" style="margin:0">Mantener sesión iniciada 30 días</label></div>
+    <div class="err" id="l-error"></div>
+    <button type="submit" class="primary">Entrar</button>
+  </form>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -326,13 +364,62 @@
     clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, err ? 6000 : 3000);
   }
   function cerrar(id) { $(id).close(); }
+  var TOKEN = null;
+  try { TOKEN = localStorage.getItem('cupos_token'); } catch (e) {}
+  function guardarToken(t) {
+    TOKEN = t;
+    try { t ? localStorage.setItem('cupos_token', t) : localStorage.removeItem('cupos_token'); } catch (e) {}
+  }
+  function mostrarLogin(msg) {
+    guardarToken(null);
+    $('l-error').textContent = msg || '';
+    $('l-clave').value = '';
+    $('login').classList.add('show');
+    setTimeout(function () { $('l-usuario').focus(); }, 50);
+  }
+  function entrar(e) {
+    e.preventDefault();
+    $('l-error').textContent = '';
+    var btn = e.submitter;
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function (r) {
+        btn.disabled = false;
+        guardarToken(r.token);
+        $('login').classList.remove('show');
+        $('l-clave').value = '';
+        cargar();
+      })
+      .withFailureHandler(function (err) { btn.disabled = false; $('l-error').textContent = err.message || String(err); })
+      .iniciarSesion($('l-usuario').value, $('l-clave').value, $('l-recordar').checked);
+  }
+  function salir() {
+    var t = TOKEN;
+    mostrarLogin();
+    if (t) google.script.run.cerrarSesion(t);
+  }
+  function cambiarCredenciales(e) {
+    e.preventDefault();
+    if ($('k-nueva').value !== $('k-nueva2').value) { toast('Las claves nuevas no coinciden.', true); return; }
+    call('cambiarCredenciales', [$('k-actual').value, $('k-usuario').value, $('k-nueva').value], function () {
+      e.target.reset();
+      mostrarLogin('Clave cambiada. Entra con tus nuevos datos.');
+    }, e.submitter);
+  }
+
   function call(fn, args, ok, btn) {
+    if (!TOKEN) { mostrarLogin(); return; }
     $('loading').style.display = 'block';
     if (btn) btn.disabled = true;
     var runner = google.script.run
       .withSuccessHandler(function (r) { $('loading').style.display = 'none'; if (btn) btn.disabled = false; ok && ok(r); })
-      .withFailureHandler(function (e) { $('loading').style.display = 'none'; if (btn) btn.disabled = false; toast(e.message || String(e), true); });
-    runner[fn].apply(runner, args || []);
+      .withFailureHandler(function (e) {
+        $('loading').style.display = 'none'; if (btn) btn.disabled = false;
+        var msg = e.message || String(e);
+        if (msg.indexOf('SESION_INVALIDA') >= 0) mostrarLogin('Tu sesión expiró. Vuelve a entrar.');
+        else toast(msg, true);
+      });
+    runner[fn].apply(runner, [TOKEN].concat(args || []));
   }
 
   // ── navegación ─────────────────────────────────────────
@@ -584,7 +671,7 @@
     });
   }
 
-  cargar();
+  if (TOKEN) cargar(); else mostrarLogin();
 </script>
 </body>
 </html>
