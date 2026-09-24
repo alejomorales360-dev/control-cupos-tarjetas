@@ -1312,9 +1312,9 @@ function enviarAlertas_(g, hoy, cfg, esPrueba, soloCanal) {
   const canales = [], errores = [];
   const urgentes = g.vencidos.length + g.venceHoy.length;
   const asunto = (esPrueba ? '[PRUEBA] ' : '') +
-    (urgentes ? '⚠️ ' + urgentes + ' cupo(s) por cortar hoy' : '🔔 ' + g.porVencer.length + ' cupo(s) próximos a vencer') +
-    ' · ' + isoADMY_(hoy);
-  const correo = { subject: asunto, htmlBody: htmlAlerta_(g, hoy, cfg), body: textoAlerta_(g, hoy, false), name: APP_NAME };
+    'Control de Cupos: ' + (urgentes ? urgentes + ' cupo(s) por cortar' : g.porVencer.length + ' cupo(s) proximos a vencer') +
+    ' (' + isoADMY_(hoy) + ')';
+  const correo = { subject: asunto, htmlBody: htmlAlerta_(g, hoy, cfg), body: textoAlerta_(g, hoy), name: APP_NAME };
 
   if (soloCanal === 'email' && !cfg.email) errores.push('Correo: no hay correo configurado.');
   if (soloCanal === 'teams' && !cfg.teamsEmail) errores.push('Teams: falta el correo del canal.');
@@ -1342,69 +1342,49 @@ function escHtml_(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function textoAlerta_(g, hoy, modo) {
-  const html = modo === true;
-  const b = function (s) { return html ? '<b>' + escHtml_(s) + '</b>' : s.toUpperCase(); };
-  const e = function (s) { return html ? escHtml_(s) : s; };
-  const out = [b('Control de cupos · ' + isoADMY_(hoy)), ''];
-  if (g.vencidos.length) {
-    out.push('🔴 ' + b('VENCIDOS — CORTE PENDIENTE'));
-    g.vencidos.forEach(function (a) { out.push('• ' + e(lineaAumento_(a)) + ' · venció hace ' + (-a.diasRestantes) + ' día(s)'); });
+// Correos deliberadamente simples (sin emojis, botones ni enlaces): los filtros
+// anti-phishing corporativos suelen desviar correos externos con enlaces.
+function textoAlerta_(g, hoy) {
+  const out = ['CONTROL DE CUPOS - ' + isoADMY_(hoy), ''];
+  const bloque = function (titulo, lista, extra) {
+    if (!lista.length) return;
+    out.push(titulo);
+    lista.forEach(function (a) { out.push('- ' + lineaAumento_(a) + (extra(a) ? ' - ' + extra(a) : '')); });
     out.push('');
-  }
-  if (g.venceHoy.length) {
-    out.push('🟠 ' + b('VENCEN HOY — hacer trámite con el banco'));
-    g.venceHoy.forEach(function (a) { out.push('• ' + e(lineaAumento_(a))); });
-    out.push('');
-  }
-  if (g.porVencer.length) {
-    out.push('🟡 ' + b('PRÓXIMOS A VENCER'));
-    g.porVencer.forEach(function (a) { out.push('• ' + e(lineaAumento_(a)) + ' · faltan ' + a.diasRestantes + ' día(s)'); });
-    out.push('');
-  }
-  if (g.inicianHoy.length) {
-    out.push('🟢 ' + b('INICIAN HOY'));
-    g.inicianHoy.forEach(function (a) { out.push('• ' + e(lineaAumento_(a))); });
-    out.push('');
-  }
-  out.push(e('Cuando hagas el corte, márcalo como "Cortado" en la app para dejar de recibir este aviso.'));
-  const url = urlApp_();
-  if (url) out.push(url);
+  };
+  bloque('VENCIDOS - CORTE PENDIENTE', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; });
+  bloque('VENCEN HOY - hacer tramite con el banco', g.venceHoy, function () { return ''; });
+  bloque('PROXIMOS A VENCER', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' dia(s)'; });
+  bloque('INICIAN HOY', g.inicianHoy, function () { return ''; });
+  out.push('Cuando hagas el corte con el banco, marcalo como "Cortado" en la app para dejar de recibir este aviso.');
   return out.join('\n');
 }
 
 function htmlAlerta_(g, hoy, cfg) {
-  const seccion = function (titulo, color, lista, extra) {
+  const td = 'padding:6px 8px;border:1px solid #ddd';
+  const seccion = function (titulo, lista, extra) {
     if (!lista.length) return '';
     const filas = lista.map(function (a) {
       const tarjeta = [a.banco, a.tarjeta ? '****' + a.tarjeta : ''].filter(String).join(' ');
-      return '<tr>' +
-        '<td style="padding:8px;border-bottom:1px solid #eee"><b>' + escHtml_(a.cliente) + '</b><br><span style="color:#666;font-size:12px">' + escHtml_(tarjeta) + '</span></td>' +
-        '<td style="padding:8px;border-bottom:1px solid #eee;text-align:right">+' + money_(a.monto) + '</td>' +
-        '<td style="padding:8px;border-bottom:1px solid #eee">' + isoADMY_(a.inicio) + ' → <b>' + isoADMY_(a.fin) + '</b></td>' +
-        '<td style="padding:8px;border-bottom:1px solid #eee;text-align:right">' + money_(a.cupoBase) + '</td>' +
-        '<td style="padding:8px;border-bottom:1px solid #eee;color:#666">' + escHtml_(extra(a)) + '</td>' +
-        '</tr>';
+      return '<tr><td style="' + td + '"><b>' + escHtml_(a.cliente) + '</b>' + (tarjeta ? '<br>' + escHtml_(tarjeta) : '') + '</td>' +
+        '<td style="' + td + ';text-align:right">+' + money_(a.monto) + '</td>' +
+        '<td style="' + td + '">' + isoADMY_(a.inicio) + ' al <b>' + isoADMY_(a.fin) + '</b></td>' +
+        '<td style="' + td + ';text-align:right">' + (a.cupoBase ? money_(a.cupoBase) : '-') + '</td>' +
+        '<td style="' + td + '">' + escHtml_(extra(a)) + '</td></tr>';
     }).join('');
-    return '<h3 style="margin:24px 0 8px;color:' + color + '">' + titulo + '</h3>' +
-      '<table style="border-collapse:collapse;width:100%;font-size:14px">' +
-      '<tr style="background:#f5f5f5;text-align:left"><th style="padding:8px">Cliente</th><th style="padding:8px;text-align:right">Aumento</th><th style="padding:8px">Vigencia</th><th style="padding:8px;text-align:right">Cupo base</th><th style="padding:8px"></th></tr>' +
+    return '<p style="margin:18px 0 6px"><b>' + titulo + '</b></p>' +
+      '<table style="border-collapse:collapse;font-size:14px">' +
+      '<tr style="background:#f2f2f2"><th style="' + td + '">Cliente</th><th style="' + td + '">Aumento</th><th style="' + td + '">Vigencia</th><th style="' + td + '">Cupo base</th><th style="' + td + '"></th></tr>' +
       filas + '</table>';
   };
-  const url = urlApp_();
-  return '<div style="font-family:Arial,sans-serif;max-width:720px;color:#111">' +
-    '<h2 style="margin:0">Control de cupos · ' + isoADMY_(hoy) + '</h2>' +
-    seccion('🔴 Vencidos — corte pendiente', '#b91c1c', g.vencidos, function (a) { return 'venció hace ' + (-a.diasRestantes) + ' día(s)'; }) +
-    seccion('🟠 Vencen hoy — hacer trámite con el banco', '#c2410c', g.venceHoy, function () { return 'hoy'; }) +
-    seccion('🟡 Próximos a vencer (' + cfg.diasAviso + ' días)', '#a16207', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' día(s)'; }) +
-    seccion('🟢 Inician hoy', '#15803d', g.inicianHoy, function () { return ''; }) +
-    '<p style="margin-top:24px;color:#444">Cuando hagas el corte con el banco, márcalo como <b>Cortado</b> en la app para dejar de recibir el aviso.</p>' +
-    (url ? '<p><a href="' + url + '" style="background:#1f2937;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Abrir la app</a></p>' : '') +
+  return '<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">' +
+    '<p><b>Control de Cupos - ' + isoADMY_(hoy) + '</b></p>' +
+    seccion('Vencidos - corte pendiente', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; }) +
+    seccion('Vencen hoy - hacer tramite con el banco', g.venceHoy, function () { return 'hoy'; }) +
+    seccion('Proximos a vencer (' + cfg.diasAviso + ' dias)', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' dia(s)'; }) +
+    seccion('Inician hoy', g.inicianHoy, function () { return ''; }) +
+    '<p style="margin-top:18px">Cuando hagas el corte con el banco, marcalo como <b>Cortado</b> en la app para dejar de recibir este aviso.</p>' +
     '</div>';
-}
-
-function urlApp_() {
-  return APP_URL;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1443,10 +1423,10 @@ function enviarInvitacionIcs_(cfg, aumentos, esPrueba, metodo, estadoCierre) {
       'SEQUENCE:' + Math.floor(Date.now() / 1000),
       'DTSTART;VALUE=DATE:' + icsFecha_(fin),
       'DTEND;VALUE=DATE:' + icsDiaSiguiente_(fin),
-      'SUMMARY:' + icsEsc_('⚠️ Cortar cupo: ' + a.CLIENTE + ' +' + money_(num_(a.MONTO))),
+      'SUMMARY:' + icsEsc_('Cortar cupo: ' + a.CLIENTE + ' +' + money_(num_(a.MONTO))),
       'DESCRIPTION:' + icsEsc_('Aumento temporal de cupo que vence hoy: hacer el trámite de corte con el banco.\nCliente: ' + a.CLIENTE +
         '\nAumento: +' + money_(num_(a.MONTO)) + '\nVigencia: ' + isoADMY_(ini) + ' al ' + isoADMY_(fin) +
-        (a.MOTIVO ? '\nMotivo: ' + a.MOTIVO : '') + '\n\nCuando lo cortes, márcalo en la app y este evento se quitará solo.\n' + APP_URL),
+        (a.MOTIVO ? '\nMotivo: ' + a.MOTIVO : '') + '\n\nCuando lo cortes, marcalo en la app y este evento se quitara solo.'),
       'TRANSP:TRANSPARENT',
       'STATUS:' + (metodo === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED')
     );
@@ -1469,17 +1449,17 @@ function enviarInvitacionIcs_(cfg, aumentos, esPrueba, metodo, estadoCierre) {
   }).join('\r\n');
 
   const uno = aumentos.length === 1 ? aumentos[0] : null;
-  const detalle = uno ? uno.CLIENTE + ' +' + money_(num_(uno.MONTO)) + ' · corte ' + isoADMY_(aISO_(uno.FECHA_FIN)) : '';
+  const detalle = uno ? uno.CLIENTE + ' +' + money_(num_(uno.MONTO)) + ' - corte ' + isoADMY_(aISO_(uno.FECHA_FIN)) : '';
   let asunto, html;
   if (metodo === 'CANCEL') {
-    asunto = (estadoCierre === ESTADO_ANULADO ? '🗑️ Anulado: ' : '✅ Cupo cortado: ') + detalle;
+    asunto = (estadoCierre === ESTADO_ANULADO ? 'Anulado: ' : 'Cupo cortado: ') + detalle;
     html = '<p>' + (estadoCierre === ESTADO_ANULADO ? 'El aumento fue anulado' : 'El cupo ya fue cortado') +
       '. Esta cancelación quita el evento de tu calendario.</p>';
   } else if (metodo === 'PUBLISH') {
-    asunto = '📅 ' + aumentos.length + ' cortes de cupo para agregar al calendario';
+    asunto = aumentos.length + ' cortes de cupo para agregar al calendario';
     html = '<p>Abre el adjunto <b>cortes-cupo.ics</b> para agregar los ' + aumentos.length + ' cortes a tu calendario de Outlook / Teams.</p>';
   } else {
-    asunto = '📅 Corte de cupo: ' + detalle;
+    asunto = 'Corte de cupo: ' + detalle;
     html = '<p>Recordatorio en tu calendario para el <b>' + (uno ? isoADMY_(aISO_(uno.FECHA_FIN)) : '') + '</b>: cortar el aumento de cupo de <b>' +
       escHtml_(uno ? uno.CLIENTE : '') + '</b> (+' + (uno ? money_(num_(uno.MONTO)) : '') + ').</p>' +
       '<p>Avisos a las 09:00 del día anterior y del mismo día. Al marcarlo como cortado en la app, el evento se quita solo.</p>';
