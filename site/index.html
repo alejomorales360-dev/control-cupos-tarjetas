@@ -128,6 +128,30 @@
   .pasos { margin: 8px 0 0; padding-left: 20px; color: var(--muted); } .pasos li { margin-bottom: 4px; }
   .aviso-setup { background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
   body:not(.admin) .solo-admin { display: none !important; }
+  /* Clientes: cifras diferenciadas */
+  .m-base { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .m-actual { font-size: 16px; font-weight: 800; color: var(--blue); font-variant-numeric: tabular-nums; }
+  .m-actual.igual { font-size: 15px; font-weight: 600; color: var(--text); }
+  .m-vacio { color: #c0c4cc; }
+  .aum { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .aum-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .aum-chip.VIGENTE { background: var(--green-bg); color: var(--green); }
+  .aum-chip.POR_VENCER, .aum-chip.VENCE_HOY { background: var(--orange-bg); color: var(--orange); }
+  .aum-chip.VENCIDO { background: var(--red-bg); color: var(--red); }
+  .aum-hasta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  tr.con-aum td { background: #f7fbf8; }
+  tr.con-aum td:first-child { box-shadow: inset 4px 0 0 var(--green); }
+  tr.con-aum.alerta td { background: #fffaf3; }
+  tr.con-aum.alerta td:first-child { box-shadow: inset 4px 0 0 var(--orange); }
+  tr.con-aum.vencido td { background: #fff6f6; }
+  tr.con-aum.vencido td:first-child { box-shadow: inset 4px 0 0 var(--red); }
+  @media (max-width: 720px) {
+    .aum { align-items: flex-start; }
+    tr.con-aum td:first-child, tr.con-aum.alerta td:first-child, tr.con-aum.vencido td:first-child { box-shadow: none; }
+    table.resp tr.con-aum { border-left: 5px solid var(--green); background: #f7fbf8; }
+    table.resp tr.con-aum.alerta { border-left-color: var(--orange); background: #fffaf3; }
+    table.resp tr.con-aum.vencido { border-left-color: var(--red); background: #fff6f6; }
+  }
 </style>
 </head>
 <body>
@@ -205,7 +229,15 @@
   <section class="tab" id="tab-clientes">
     <div class="panel">
       <h2>Clientes <span class="actions"><button class="small" onclick="abrirImportar()">⬆ Importar Excel</button><button class="primary small" onclick="abrirCliente()">+ Nuevo cliente</button></span></h2>
-      <div class="toolbar"><input id="f-cli-q" placeholder="Buscar por nombre, documento o banco…" oninput="renderClientes()"></div>
+      <div class="toolbar">
+        <input id="f-cli-q" placeholder="Buscar por nombre, documento o banco…" oninput="renderClientes()">
+        <select id="f-cli-filtro" onchange="renderClientes()">
+          <option value="">Todos los clientes</option>
+          <option value="aum">Con aumento vigente</option>
+          <option value="cortar">Por cortar (vencen pronto o vencidos)</option>
+          <option value="sinbase">Sin cupo base registrado</option>
+        </select>
+      </div>
       <table class="resp">
         <thead><tr><th>Cliente</th><th>Tarjeta</th><th class="num">Cupo base</th><th class="num">Aumento vigente</th><th class="num">Cupo actual</th><th></th></tr></thead>
         <tbody id="t-clientes"></tbody>
@@ -684,22 +716,53 @@
     }).join('') : '<tr><td colspan="6" class="empty">No hay aumentos con ese filtro.</td></tr>';
   }
 
+  // Aumentos abiertos (no cortados) por cliente, con el estado más urgente
+  function aumentosAbiertos(idCliente) {
+    var abiertos = DATA.aumentos.filter(function (a) {
+      return a.idCliente === idCliente && ['VIGENTE', 'POR_VENCER', 'VENCE_HOY', 'VENCIDO'].indexOf(a.estadoCalc) >= 0;
+    });
+    if (!abiertos.length) return null;
+    var peor = abiertos.slice().sort(function (x, y) { return PRIORIDAD[x.estadoCalc] - PRIORIDAD[y.estadoCalc]; })[0];
+    var fin = abiertos.map(function (a) { return a.fin; }).sort()[0];
+    var total = abiertos.reduce(function (s, a) { return s + a.monto; }, 0);
+    return { total: total, estado: peor.estadoCalc, fin: fin, n: abiertos.length };
+  }
+
   function renderClientes() {
     var q = $('f-cli-q').value.trim().toLowerCase();
-    var lista = DATA.clientes.filter(function (c) {
-      return !q || (c.nombre + ' ' + c.documento + ' ' + c.banco).toLowerCase().indexOf(q) >= 0;
-    }).sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
-    $('t-clientes').innerHTML = lista.length ? lista.map(function (c) {
-      return '<tr' + (c.activo ? '' : ' style="opacity:.55"') + '><td data-l=""><b>' + esc(c.nombre) + '</b>' +
-        (c.cortesPendientes ? ' <span class="badge b-VENCIDO">' + c.cortesPendientes + ' corte pendiente</span>' : '') +
+    var f = $('f-cli-filtro').value;
+    var filas = DATA.clientes.map(function (c) { return { c: c, ab: aumentosAbiertos(c.id) }; }).filter(function (x) {
+      var c = x.c;
+      if (q && (c.nombre + ' ' + c.documento + ' ' + c.banco).toLowerCase().indexOf(q) < 0) return false;
+      if (f === 'aum' && !x.ab) return false;
+      if (f === 'cortar' && !(x.ab && x.ab.estado !== 'VIGENTE')) return false;
+      if (f === 'sinbase' && c.cupoBase != null) return false;
+      return true;
+    }).sort(function (x, y) {
+      // primero los que tienen aumento (más urgentes arriba), luego por nombre
+      var px = x.ab ? PRIORIDAD[x.ab.estado] : 9, py = y.ab ? PRIORIDAD[y.ab.estado] : 9;
+      return (px - py) || x.c.nombre.localeCompare(y.c.nombre);
+    });
+    var TXT = { VIGENTE: 'hasta ', POR_VENCER: 'vence ', VENCE_HOY: 'vence HOY ', VENCIDO: 'venció ' };
+    $('t-clientes').innerHTML = filas.length ? filas.map(function (x) {
+      var c = x.c, ab = x.ab;
+      var clase = ab ? 'con-aum' + (ab.estado === 'VENCIDO' ? ' vencido' : ab.estado === 'VIGENTE' ? '' : ' alerta') : '';
+      var base = c.cupoBase == null ? '<span class="m-vacio">—</span>' : '<span class="m-base">' + money(c.cupoBase) + '</span>';
+      var aum = ab
+        ? '<span class="aum"><span class="aum-chip ' + ab.estado + '">+' + money(ab.total) + '</span>' +
+          '<span class="aum-hasta">' + TXT[ab.estado] + dmy(ab.fin) + (ab.n > 1 ? ' · ' + ab.n + ' aumentos' : '') + '</span></span>'
+        : '<span class="m-vacio">—</span>';
+      var actual = c.cupoBase == null && !ab ? '<span class="m-vacio">—</span>'
+        : '<span class="m-actual' + (ab ? '' : ' igual') + '">' + money((c.cupoBase || 0) + (ab ? ab.total : 0)) + '</span>';
+      return '<tr class="' + clase + '"' + (c.activo ? '' : ' style="opacity:.55"') + '><td data-l=""><b>' + esc(c.nombre) + '</b>' +
         '<div class="sub">' + esc(c.documento) + (c.activo ? '' : ' · inactivo') + '</div></td>' +
         '<td data-l="Tarjeta">' + esc(tarjetaTxt(c.banco, c.tarjeta)) + '</td>' +
-        '<td class="num" data-l="Cupo base">' + cupo(c.cupoBase) + '</td>' +
-        '<td class="num" data-l="Aumento vigente">' + (c.aumentoVigente ? '+' + money(c.aumentoVigente) : '—') + '</td>' +
-        '<td class="num" data-l="Cupo actual"><b>' + (c.cupoBase == null && !c.aumentoVigente ? '—' : money(c.cupoVigente)) + '</b></td>' +
+        '<td class="num" data-l="Cupo base">' + base + '</td>' +
+        '<td class="num" data-l="Aumento vigente">' + aum + '</td>' +
+        '<td class="num" data-l="Cupo actual">' + actual + '</td>' +
         '<td><div class="actions"><button class="small primary" onclick="abrirAumento(null,\'' + c.id + '\')">+ Aumento</button>' +
         '<button class="small" onclick="abrirCliente(\'' + c.id + '\')">Editar</button></div></td></tr>';
-    }).join('') : '<tr><td colspan="6" class="empty">Aún no hay clientes. Crea el primero con “+ Nuevo cliente”.</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="empty">' + (DATA.clientes.length ? 'Ningún cliente coincide con el filtro.' : 'Aún no hay clientes. Crea el primero con “+ Nuevo cliente”.') + '</td></tr>';
   }
 
   // ── clientes ───────────────────────────────────────────
