@@ -339,19 +339,6 @@
         <button type="submit" class="primary">Cambiar clave</button>
       </form>
     </div>
-    <div class="panel solo-admin">
-      <h2>Base de datos</h2>
-      <p class="status-line">Todo se guarda en la planilla: <a id="link-planilla" href="#" target="_blank">cargando…</a></p>
-      <p class="hint">Hojas: CLIENTES, AUMENTOS, HISTORIAL, USUARIOS (claves cifradas), CONFIG (alertas) y SESIONES. Para resetear la clave de alguien directamente en la planilla, escribe la clave nueva en su columna <b>CLAVE_NUEVA</b>: se usa en su próximo ingreso y se borra.</p>
-      <form onsubmit="cambiarPlanilla(event)">
-        <div class="field">
-          <label>Usar otra planilla de Google Sheets</label>
-          <input id="bd-url" placeholder="https://docs.google.com/spreadsheets/d/…/edit" required>
-          <div class="hint">Pega la URL de una planilla de tu cuenta de Google. Se crean en ella las hojas <b>CLIENTES</b>, <b>AUMENTOS</b> e <b>HISTORIAL</b> (no se tocan otras hojas). Los datos de la planilla anterior no se mueven: si ya importaste clientes, vuelve a importar el Excel.</div>
-        </div>
-        <button type="submit" class="primary">Usar esta planilla</button>
-      </form>
-    </div>
   </section>
 </main>
 
@@ -602,7 +589,7 @@
     iniciarSesion: 'Entrando…', obtenerDatos: 'Cargando datos…', obtenerConfig: 'Cargando configuración…', listarUsuarios: 'Cargando usuarios…',
     guardarCliente: 'Guardando cliente…', guardarAumento: 'Guardando aumento…', marcarCortado: 'Marcando como cortado…', anularAumento: 'Anulando…',
     reabrirAumento: 'Reabriendo…', guardarConfig: 'Guardando configuración…', enviarPrueba: 'Enviando prueba…', revisarAhora: 'Revisando vencimientos y enviando alertas…',
-    importarDatos: 'Procesando Excel…', cambiarPlanilla: 'Conectando la planilla…', guardarUsuario: 'Guardando usuario…', cambiarCredenciales: 'Cambiando clave…'
+    importarDatos: 'Procesando Excel…', guardarUsuario: 'Guardando usuario…', cambiarCredenciales: 'Cambiando clave…'
   };
   var CARGAS = 0;
   function cargando(on, texto, btn) {
@@ -649,7 +636,6 @@
       $('s-proximos').textContent = d.resumen.porVencer;
       $('s-vigentes').textContent = d.resumen.vigentes;
       $('s-programados').textContent = d.resumen.programados;
-      $('link-planilla').href = d.planillaUrl;
       var bancos = {}; d.clientes.forEach(function (c) { if (c.banco) bancos[c.banco] = 1; });
       $('bancos').innerHTML = Object.keys(bancos).map(function (b) { return '<option value="' + esc(b) + '">'; }).join('');
       renderPanel(); renderAumentos(); renderClientes();
@@ -968,7 +954,6 @@
     $('cfg-teams-email').value = c.teamsEmail || '';
     $('cfg-tz').textContent = 'Zona horaria: ' + c.zonaHoraria;
     $('cfg-cuota').textContent = c.cuotaCorreo != null ? 'Correos disponibles hoy: ' + c.cuotaCorreo + '.' : '';
-    if (c.planilla) { $('link-planilla').textContent = c.planilla.nombre + ' ↗'; $('link-planilla').href = c.planilla.url; }
     estado('st-email', !!c.email); estado('st-cal', c.icsInvitacion && !!c.email); estado('st-teams', !!c.teamsEmail);
     var chip = function (on, txt, bad) { return '<span class="chip ' + (on ? 'on' : bad ? 'off-bad' : '') + '">' + txt + '</span>'; };
     $('cfg-chips').innerHTML =
@@ -1009,15 +994,6 @@
     e.preventDefault();
     var d = { nuevo: !!$('u-nuevo').value, usuario: $('u-usuario').value, nombre: $('u-nombre').value, rol: $('u-rol').value, activo: $('u-activo').checked, clave: $('u-clave').value };
     call('guardarUsuario', [d], function (lista) { cerrar('dlg-usuario'); pintarUsuarios(lista); toast('Usuario guardado'); }, e.submitter);
-  }
-  function cambiarPlanilla(e) {
-    e.preventDefault();
-    if (!confirm('¿Guardar los datos desde ahora en esta planilla?')) return;
-    call('cambiarPlanilla', [$('bd-url').value], function (r) {
-      $('bd-url').value = '';
-      toast('Ahora los datos se guardan en “' + r.nombre + '”');
-      cargarConfig(); cargar();
-    }, e.submitter);
   }
   function leerConfig() {
     return {
