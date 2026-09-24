@@ -959,11 +959,17 @@
   function leerConfig() {
     return {
       email: $('cfg-email').value, diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
-      icsInvitacion: $('cfg-ics').checked, teamsEmail: $('cfg-teams-email').value
+      icsInvitacion: $('cfg-ics').checked, teamsEmail: correoTeams()
     };
   }
+  // Acepta lo que copia Teams: "Nombre - Canal <xxxx@emea.teams.ms>"
+  function correoTeams() {
+    var v = $('cfg-teams-email').value.trim(), m = v.match(/<([^>]+)>/);
+    if (m) { v = m[1].trim(); $('cfg-teams-email').value = v; }
+    return v;
+  }
   function validarTeams() {
-    var t = $('cfg-teams-email').value.trim();
+    var t = correoTeams();
     if (t && !/teams\.ms$/i.test(t)) {
       toast('Aquí solo va la dirección de un canal de Teams (termina en teams.ms). Tu correo corporativo ya recibe todo en "Correo(s)". Para ver las alertas en tu chat de Teams usa la Opción A (Power Automate) y deja este campo vacío.', true);
       $('cfg-teams-email').focus();
