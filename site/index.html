@@ -162,6 +162,13 @@
   .dias.d7 { background: var(--yellow-bg); color: var(--yellow); }
   .dias.dx { background: var(--green-bg); color: var(--green); }
   .stat .v { font-size: 20px; font-weight: 800; }
+  .lista-correos { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .correo-item { display: flex; align-items: center; gap: 8px; background: var(--gray-bg); border-radius: 8px; padding: 6px 6px 6px 12px; font-size: 14px; }
+  .correo-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .correo-item button { border: 0; background: transparent; color: var(--red); font-size: 18px; line-height: 1; padding: 2px 8px; }
+  .correo-vacio { color: var(--muted); font-size: 13px; }
+  .agregar-correo { display: flex; gap: 6px; }
+  .agregar-correo input { flex: 1; min-width: 0; }
 </style>
 </head>
 <body>
@@ -323,7 +330,16 @@
           <!-- CORREO -->
           <div class="canal">
             <div class="canal-h"><span class="canal-ico">📧</span><div><b>Correo corporativo</b><div class="sub">Resumen diario en Outlook</div></div><span class="estado" id="st-email"></span></div>
-            <div class="field"><label>Correo(s)</label><input id="cfg-email" placeholder="nombre@empresa.com"><div class="hint">Separa varios con coma. <span id="cfg-cuota"></span></div></div>
+            <div class="field">
+              <label>Correos que reciben las alertas</label>
+              <div id="lista-correos" class="lista-correos"></div>
+              <div class="agregar-correo">
+                <input id="nuevo-correo" type="email" placeholder="otro@empresa.com" autocomplete="off"
+                  onkeydown="if (event.key === 'Enter') { event.preventDefault(); agregarCorreo(); }">
+                <button type="button" class="small" onclick="agregarCorreo()">+ Agregar</button>
+              </div>
+              <div class="hint">Todos reciben el resumen diario y las invitaciones de calendario. <span id="cfg-cuota"></span></div>
+            </div>
             <button type="button" class="small" onclick="probar('email', this)">Probar correo</button>
           </div>
 
@@ -1239,7 +1255,8 @@
   function estado(id, on, txt) { var e = $(id); e.textContent = txt || (on ? 'Activo' : 'Inactivo'); e.className = 'estado' + (on ? ' on' : ''); }
   function pintarConfig(c) {
     CFG = c;
-    $('cfg-email').value = c.email;
+    CORREOS = String(c.email || '').split(/[,;\s]+/).filter(Boolean);
+    pintarCorreos();
     $('cfg-dias').value = c.diasAviso;
     $('cfg-hora').value = c.hora;
     $('cfg-ics').checked = c.icsInvitacion;
@@ -1287,9 +1304,37 @@
     var d = { nuevo: !!$('u-nuevo').value, usuario: $('u-usuario').value, nombre: $('u-nombre').value, rol: $('u-rol').value, activo: $('u-activo').checked, clave: $('u-clave').value };
     call('guardarUsuario', [d], function (lista) { cerrar('dlg-usuario'); pintarUsuarios(lista); toast('Usuario guardado'); }, e.submitter);
   }
+  // ── lista de correos de alerta ──
+  var CORREOS = [];
+  var RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  function pintarCorreos() {
+    $('lista-correos').innerHTML = CORREOS.length ? CORREOS.map(function (e, i) {
+      return '<div class="correo-item"><span title="' + esc(e) + '">📧 ' + esc(e) + '</span>' +
+        '<button type="button" title="Quitar" onclick="quitarCorreo(' + i + ')">✕</button></div>';
+    }).join('') : '<div class="correo-vacio">Aún no hay correos. Agrega al menos uno.</div>';
+  }
+  function agregarCorreo() {
+    var nuevos = $('nuevo-correo').value.split(/[,;\s]+/).map(function (e) { return e.trim(); }).filter(Boolean);
+    if (!nuevos.length) { $('nuevo-correo').focus(); return false; }
+    var malo = nuevos.filter(function (e) { return !RE_CORREO.test(e); })[0];
+    if (malo) { toast('Correo inválido: ' + malo, true); $('nuevo-correo').focus(); return false; }
+    nuevos.forEach(function (e) {
+      if (!CORREOS.some(function (x) { return x.toLowerCase() === e.toLowerCase(); })) CORREOS.push(e);
+    });
+    $('nuevo-correo').value = '';
+    pintarCorreos();
+    return true;
+  }
+  function quitarCorreo(i) { CORREOS.splice(i, 1); pintarCorreos(); }
+  // Si quedó un correo escrito sin pulsar "Agregar", se incluye al guardar
+  function correosParaGuardar() {
+    if ($('nuevo-correo').value.trim()) agregarCorreo();
+    return CORREOS.join(',');
+  }
+
   function leerConfig() {
     return {
-      email: $('cfg-email').value, diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
+      email: correosParaGuardar(), diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
       icsInvitacion: $('cfg-ics').checked, teamsEmail: correoTeams()
     };
   }
