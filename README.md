@@ -17,7 +17,7 @@ App web en Google Apps Script para llevar el registro de clientes, su **cupo bas
 │ site/index.html          │ ───────▶ │ Apps Script  (Codigo.gs)   │ ──▶│ Google Sheets│
 │ GitHub Pages (github.io) │ ◀─────── │ API JSON + login + alertas │    │ (base datos) │
 └──────────────────────────┘  JSON    └────────────────────────────┘    └──────────────┘
-                                         │ disparador diario → 📧 correo · ✈️ Telegram · 📅 Calendar
+                                         │ disparador diario → 📧 correo · 📅 calendario Outlook/Teams · 🟪 canal Teams
 ```
 
 | Parte | Dónde vive | Cómo se actualiza |
@@ -114,7 +114,7 @@ Por defecto `setup()` crea una planilla nueva. Para usar una propia: **Configura
 | `CLIENTES`, `AUMENTOS` | Los datos del negocio |
 | `HISTORIAL` | Cada acción, con el usuario de la app que la hizo |
 | `USUARIOS` | Usuario, nombre, rol (`ADMIN`/`OPERADOR`), activo, `HASH`+`SAL` de la clave, `CLAVE_NUEVA`, último acceso |
-| `CONFIG` | Correos, días de aviso, hora, WhatsApp, Teams, Telegram, calendario (editable también a mano: `SI`/`NO`) |
+| `CONFIG` | Correo corporativo, días de aviso, hora, invitación de calendario (`SI`/`NO`) y correo del canal de Teams (editable también a mano) |
 | `SESIONES` | Sesiones abiertas (hash del token + vencimiento). Borrar una fila cierra esa sesión. |
 
 Lo único fuera de la planilla es `SPREADSHEET_ID` en las *Script Properties* (hace falta para encontrarla). Al actualizar desde una versión anterior, el login, las sesiones y la configuración que estaban en *Script Properties* se mueven solos a la planilla la primera vez.
@@ -124,7 +124,7 @@ Lo único fuera de la planilla es `SPREADSHEET_ID` en las *Script Properties* (h
 - **Primer usuario / olvidé la clave del admin:** en el editor de Apps Script ejecuta **`generarClaveAcceso`** → crea `admin` (o resetea el primer ADMIN) y muestra la clave en el *Registro de ejecución*.
 - **Implementación:** *Ejecutar como:* **Yo** · *Quién tiene acceso:* **Cualquier persona**. La pantalla es pública pero ninguna función entrega datos sin sesión válida.
 - Sesiones de 12 h, o 30 días con "Mantener sesión iniciada" (sin marcarla, se cierra al cerrar la pestaña). Bloqueo de 15 min tras 8 intentos fallidos.
-- **Quien tenga acceso a la planilla ve la configuración** (incluidas la API key de WhatsApp y la URL de Teams): no la compartas.
+- **Quien tenga acceso a la planilla ve los datos y la configuración**: compártela solo con quien corresponda.
 - Solo se guardan los **últimos 4 dígitos** de la tarjeta.
 
 ## Archivos
