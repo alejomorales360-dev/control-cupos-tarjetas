@@ -82,6 +82,15 @@
   #login button[type=submit] { width: 100%; padding: 12px; }
   #loading { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #60a5fa, transparent); background-size: 200% 100%; animation: load 1s linear infinite; display: none; }
   @keyframes load { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  #cargando { position: fixed; inset: 0; background: rgba(17, 24, 39, .35); display: none; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
+  #cargando.show { display: flex; }
+  #cargando .caja { background: var(--card); border-radius: 14px; padding: 22px 28px; display: flex; align-items: center; gap: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.2); font-weight: 600; max-width: 360px; }
+  .spinner { width: 26px; height: 26px; border: 3px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: gira .8s linear infinite; flex: none; }
+  @keyframes gira { to { transform: rotate(360deg); } }
+  button.trabajando { position: relative; color: transparent !important; }
+  button.trabajando::after { content: ''; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid rgba(128,128,128,.4); border-top-color: currentColor; border-radius: 50%; animation: gira .8s linear infinite; }
+  button.primary.trabajando::after, button.ok.trabajando::after { border-top-color: #fff; }
+  #toast { line-height: 1.4; }
   .preview { background: var(--gray-bg); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
   .check { display: flex; gap: 8px; align-items: center; } .check input { width: auto; }
   .status-line { font-size: 13px; margin: 4px 0; }
@@ -123,6 +132,7 @@
 </head>
 <body>
 <div id="loading"></div>
+<div id="cargando" role="status" aria-live="polite"><div class="caja"><div class="spinner"></div><div id="cargando-txt">Cargando…</div></div></div>
 <header>
   <div>
     <h1>💳 Control de Cupos</h1>
@@ -206,7 +216,7 @@
   <!-- CONFIG -->
   <section class="tab" id="tab-config">
     <div class="panel solo-admin">
-      <h2>Alertas <span class="actions"><button type="button" class="small" onclick="revisarAhora()">Revisar vencimientos ahora</button></span></h2>
+      <h2>Alertas <span class="actions"><button type="button" class="small" onclick="revisarAhora(this)">Revisar vencimientos ahora</button></span></h2>
       <div class="chips" id="cfg-chips"></div>
       <div id="cfg-aviso"></div>
       <form id="form-config" onsubmit="guardarConfig(event)">
@@ -229,7 +239,7 @@
           <div class="canal">
             <div class="canal-h"><span class="canal-ico">📧</span><div><b>Correo corporativo</b><div class="sub">Resumen diario en Outlook</div></div><span class="estado" id="st-email"></span></div>
             <div class="field"><label>Correo(s)</label><input id="cfg-email" placeholder="nombre@empresa.com"><div class="hint">Separa varios con coma. <span id="cfg-cuota"></span></div></div>
-            <button type="button" class="small" onclick="probar('email')">Probar correo</button>
+            <button type="button" class="small" onclick="probar('email', this)">Probar correo</button>
           </div>
 
           <!-- CALENDARIO -->
@@ -241,7 +251,7 @@
               <li>Avisos a las 09:00 del día anterior y del mismo día.</li>
               <li>Al marcarlo <b>cortado</b> o <b>anulado</b>, llega la cancelación y el evento se quita solo.</li>
             </ul>
-            <button type="button" class="small" onclick="probar('ics')">Enviarme invitación de prueba</button>
+            <button type="button" class="small" onclick="probar('ics', this)">Enviarme invitación de prueba</button>
           </div>
 
           <!-- TEAMS -->
@@ -255,13 +265,13 @@
               </ol>
             </details>
             <div class="field"><label>Correo del canal</label><input id="cfg-teams-email" placeholder="xxxx.empresa.com@amer.teams.ms"></div>
-            <button type="button" class="small" onclick="probar('teams')">Probar Teams</button>
+            <button type="button" class="small" onclick="probar('teams', this)">Probar Teams</button>
           </div>
         </div>
 
         <div class="dlg-actions" style="justify-content:flex-start;margin-top:16px">
           <button type="submit" class="primary">Guardar configuración</button>
-          <button type="button" onclick="probar()">Probar todos los canales</button>
+          <button type="button" onclick="probar('', this)">Probar todos los canales</button>
         </div>
       </form>
     </div>
@@ -452,7 +462,7 @@
   function tarjetaTxt(banco, t) { return [banco, t ? '****' + t : ''].filter(Boolean).join(' '); }
   function toast(msg, err) {
     var t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block';
-    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, err ? 6000 : 3000);
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, Math.max(err ? 6000 : 3500, msg.length * 60));
   }
   function cerrar(id) { $(id).close(); }
   // URL /exec de la implementación de Apps Script (API).
@@ -512,17 +522,17 @@
     e.preventDefault();
     $('l-error').textContent = '';
     var btn = e.submitter;
-    btn.disabled = true;
+    cargando(true, 'Entrando…', btn);
     api('iniciarSesion', [$('l-usuario').value, $('l-clave').value, $('l-recordar').checked])
       .then(function (r) {
-        btn.disabled = false;
+        cargando(false, '', btn);
         guardarToken(r.token, $('l-recordar').checked);
         aplicarSesion(r);
         $('login').classList.remove('show');
         $('l-clave').value = '';
         cargar();
       })
-      .catch(function (err) { btn.disabled = false; $('l-error').textContent = err.message || String(err); });
+      .catch(function (err) { cargando(false, '', btn); $('l-error').textContent = err.message || String(err); });
   }
   var SESION = null;
   function aplicarSesion(se) {
@@ -546,14 +556,30 @@
     }, e.submitter);
   }
 
-  function call(fn, args, ok, btn) {
+  // Indicador de carga: barra arriba siempre; ventana con texto si tarda más de 300 ms
+  var TEXTOS_CARGA = {
+    iniciarSesion: 'Entrando…', obtenerDatos: 'Cargando datos…', obtenerConfig: 'Cargando configuración…', listarUsuarios: 'Cargando usuarios…',
+    guardarCliente: 'Guardando cliente…', guardarAumento: 'Guardando aumento…', marcarCortado: 'Marcando como cortado…', anularAumento: 'Anulando…',
+    reabrirAumento: 'Reabriendo…', guardarConfig: 'Guardando configuración…', enviarPrueba: 'Enviando prueba…', revisarAhora: 'Revisando vencimientos y enviando alertas…',
+    importarDatos: 'Procesando Excel…', cambiarPlanilla: 'Conectando la planilla…', guardarUsuario: 'Guardando usuario…', cambiarCredenciales: 'Cambiando clave…'
+  };
+  var CARGAS = 0;
+  function cargando(on, texto, btn) {
+    CARGAS = Math.max(0, CARGAS + (on ? 1 : -1));
+    $('loading').style.display = CARGAS ? 'block' : 'none';
+    if (btn) { btn.disabled = on; btn.classList.toggle('trabajando', on); }
+    clearTimeout(cargando._t);
+    if (CARGAS && on) { $('cargando-txt').textContent = texto || 'Procesando…'; cargando._t = setTimeout(function () { if (CARGAS) $('cargando').classList.add('show'); }, 300); }
+    if (!CARGAS) $('cargando').classList.remove('show');
+  }
+
+  function call(fn, args, ok, btn, texto) {
     if (!TOKEN) { mostrarLogin(); return; }
-    $('loading').style.display = 'block';
-    if (btn) btn.disabled = true;
+    cargando(true, texto || TEXTOS_CARGA[fn], btn);
     api(fn, [TOKEN].concat(args || []))
-      .then(function (r) { $('loading').style.display = 'none'; if (btn) btn.disabled = false; ok && ok(r); })
+      .then(function (r) { cargando(false, '', btn); ok && ok(r); })
       .catch(function (e) {
-        $('loading').style.display = 'none'; if (btn) btn.disabled = false;
+        cargando(false, '', btn);
         var msg = e.message || String(e);
         if (msg.indexOf('SESION_INVALIDA') >= 0) mostrarLogin('Tu sesión expiró. Vuelve a entrar.');
         else toast(msg, true);
@@ -927,26 +953,39 @@
       icsInvitacion: $('cfg-ics').checked, teamsEmail: $('cfg-teams-email').value
     };
   }
+  function validarTeams() {
+    var t = $('cfg-teams-email').value.trim();
+    if (t && !/teams\.ms$/i.test(t)) {
+      toast('En "Canal de Teams" va solo la dirección de un canal (termina en teams.ms). Tu correo corporativo va en "Correo(s)". Deja el campo de Teams vacío si no usarás un canal.', true);
+      $('cfg-teams-email').focus();
+      return false;
+    }
+    return true;
+  }
   function guardarConfig(e) {
     e.preventDefault();
+    if (!validarTeams()) return;
     call('guardarConfig', [leerConfig()], function (c) { pintarConfig(c); toast('Configuración guardada'); cargar(); }, e.submitter);
   }
-  function probar(canal) {
+  function probar(canal, btn) {
+    if (!validarTeams()) return;
+    btn = btn || (window.event && window.event.target && window.event.target.closest && window.event.target.closest('button'));
     // Guarda primero lo que haya en pantalla para probar con esos datos
     call('guardarConfig', [leerConfig()], function (c) {
       pintarConfig(c);
       call('enviarPrueba', [canal || ''], function (r) {
-        if (r.errores.length) toast(r.errores.join(' · '), true);
-        else toast('Prueba enviada por: ' + r.canales.join(', '));
-      });
-    });
+        if (r.errores.length) { toast(r.errores.join(' · '), true); return; }
+        var destinos = canal === 'teams' ? c.teamsEmail : canal === 'email' || canal === 'ics' ? c.email : [c.email, c.teamsEmail].filter(Boolean).join(', ');
+        toast('✅ Enviado (' + r.canales.join(', ') + ') a ' + destinos + '. Si en 2-3 minutos no aparece, revisa "Correo no deseado" y la cuarentena de tu empresa.');
+      }, btn);
+    }, btn);
   }
-  function revisarAhora() {
+  function revisarAhora(btn) {
     call('revisarAhora', [], function (r) {
       if (!r.enviado) toast('No hay aumentos por vencer. No se envió nada.');
       else if (r.errores && r.errores.length) toast(r.errores.join(' · '), true);
-      else toast('Alerta enviada (' + r.total + ' aumento/s) por: ' + r.canales.join(', '));
-    });
+      else toast('✅ Alerta enviada (' + r.total + ' aumento/s) por: ' + r.canales.join(', '));
+    }, btn);
   }
 
   if (API_URL !== API_URL_DEFECTO) $('l-servidor').textContent = 'Servidor personalizado ✓';
