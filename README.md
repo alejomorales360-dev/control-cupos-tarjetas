@@ -95,19 +95,27 @@ Las claves (API key de WhatsApp, URL de Teams, token de Telegram) se guardan en 
 
 Por defecto `setup()` crea una planilla nueva. Para usar una propia: **Configuración → Base de datos** → pega la URL de la planilla → **Usar esta planilla**. Se crean en ella las hojas `CLIENTES`, `AUMENTOS` e `HISTORIAL` (las demás hojas no se tocan). La planilla debe ser de la misma cuenta de Google que el proyecto de Apps Script.
 
-## Seguridad y acceso (login)
+## Seguridad, usuarios y dónde se guarda todo
 
-La app tiene **login propio con usuario y clave**, para entrar desde cualquier equipo o celular sin depender de una cuenta de Google.
+**Todo vive en la planilla de Google Sheets:**
 
-- **Implementación:** *Ejecutar como:* **Yo** · *Quién tiene acceso:* **Cualquier persona**. La pantalla de login es pública, pero **ningún dato se entrega sin sesión válida**: cada función del servidor exige el token de sesión.
-- **Clave inicial:** en el editor de Apps Script ejecuta **`generarClaveAcceso`**. En *Registro de ejecución* aparecen el usuario (`admin`) y una clave aleatoria. Entra y cámbiala en **Configuración → Acceso**.
-- **¿Olvidaste la clave?** Ejecuta de nuevo `generarClaveAcceso` en el editor: genera una nueva y cierra todas las sesiones. Solo funciona desde el editor (cuenta dueña), nunca desde la web.
-- La clave se guarda como **hash SHA-256 iterado con sal** en las *Script Properties*; nunca en texto plano ni en la planilla.
-- Sesiones de **12 horas**, o **30 días** con "Mantener sesión iniciada". **Salir** cierra la sesión en el servidor. Cambiar la clave cierra todas las sesiones.
-- **Anti fuerza bruta:** tras 8 intentos fallidos el login se bloquea 15 minutos.
-- Usa una clave larga y única (idealmente de un gestor de contraseñas): quien la tenga ve todos los datos.
-- Solo se guardan los **últimos 4 dígitos** de la tarjeta. No registres números completos, CVV ni fechas de expiración.
-- El token de Telegram se guarda en las *Script Properties*, no en la planilla ni en el repositorio.
+| Hoja | Contenido |
+|---|---|
+| `CLIENTES`, `AUMENTOS` | Los datos del negocio |
+| `HISTORIAL` | Cada acción, con el usuario de la app que la hizo |
+| `USUARIOS` | Usuario, nombre, rol (`ADMIN`/`OPERADOR`), activo, `HASH`+`SAL` de la clave, `CLAVE_NUEVA`, último acceso |
+| `CONFIG` | Correos, días de aviso, hora, WhatsApp, Teams, Telegram, calendario (editable también a mano: `SI`/`NO`) |
+| `SESIONES` | Sesiones abiertas (hash del token + vencimiento). Borrar una fila cierra esa sesión. |
+
+Lo único fuera de la planilla es `SPREADSHEET_ID` en las *Script Properties* (hace falta para encontrarla). Al actualizar desde una versión anterior, el login, las sesiones y la configuración que estaban en *Script Properties* se mueven solos a la planilla la primera vez.
+
+- **Claves:** nunca en texto; se guarda `HASH` (SHA-256 iterado con sal). Para **resetear** la clave de alguien desde la planilla, escribe la clave nueva en su celda `CLAVE_NUEVA`: sirve en su próximo ingreso y se convierte en hash automáticamente.
+- **Roles:** `ADMIN` ve todo (configuración, usuarios, base de datos). `OPERADOR` solo clientes y aumentos. Se administran en **Configuración → Usuarios**.
+- **Primer usuario / olvidé la clave del admin:** en el editor de Apps Script ejecuta **`generarClaveAcceso`** → crea `admin` (o resetea el primer ADMIN) y muestra la clave en el *Registro de ejecución*.
+- **Implementación:** *Ejecutar como:* **Yo** · *Quién tiene acceso:* **Cualquier persona**. La pantalla es pública pero ninguna función entrega datos sin sesión válida.
+- Sesiones de 12 h, o 30 días con "Mantener sesión iniciada" (sin marcarla, se cierra al cerrar la pestaña). Bloqueo de 15 min tras 8 intentos fallidos.
+- **Quien tenga acceso a la planilla ve la configuración** (incluidas la API key de WhatsApp y la URL de Teams): no la compartas.
+- Solo se guardan los **últimos 4 dígitos** de la tarjeta.
 
 ## Archivos
 

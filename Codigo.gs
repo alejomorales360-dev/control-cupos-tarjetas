@@ -38,12 +38,34 @@ const APP_URL      = 'https://alejomorales360-dev.github.io/control-cupos-tarjet
 const SH_CLIENTES  = 'CLIENTES';
 const SH_AUMENTOS  = 'AUMENTOS';
 const SH_HISTORIAL = 'HISTORIAL';
+const SH_USUARIOS  = 'USUARIOS';
+const SH_CONFIG    = 'CONFIG';
+const SH_SESIONES  = 'SESIONES';
 
+// Todo vive en la planilla. Lo único que queda en las Script Properties es
+// SPREADSHEET_ID (hace falta para saber dónde está la planilla).
 const HEADERS = {
   CLIENTES:  ['ID','NOMBRE','DOCUMENTO','BANCO','TARJETA_ULT4','CUPO_BASE','EMAIL','TELEFONO','NOTAS','ACTIVO','CREADO'],
   AUMENTOS:  ['ID','ID_CLIENTE','CLIENTE','MONTO','FECHA_INICIO','FECHA_FIN','MOTIVO','ESTADO','FECHA_CORTE','NOTA_CORTE','ULTIMO_AVISO','EVENTO_CALENDAR','CREADO'],
-  HISTORIAL: ['FECHA','ACCION','DETALLE','USUARIO']
+  HISTORIAL: ['FECHA','ACCION','DETALLE','USUARIO'],
+  USUARIOS:  ['USUARIO','NOMBRE','ROL','ACTIVO','HASH','SAL','CLAVE_NUEVA','CREADO','ULTIMO_ACCESO'],
+  CONFIG:    ['CLAVE','VALOR','DESCRIPCION'],
+  SESIONES:  ['TOKEN_HASH','USUARIO','VENCE','CREADO']
 };
+
+// Claves de la hoja CONFIG (valor por defecto y descripción que se ve en la hoja)
+const CONFIG_DEF = [
+  ['EMAIL_ALERTAS',    '',   'Correos que reciben las alertas, separados por coma'],
+  ['DIAS_AVISO',       '3',  'Días de anticipación para el aviso previo'],
+  ['HORA_ALERTA',      '8',  'Hora (0-23) de la revisión diaria'],
+  ['ICS_INVITACION',   'NO', 'SI = enviar invitación .ics (Outlook/Teams) al crear cada aumento'],
+  ['USAR_CALENDAR',    'NO', 'SI = crear evento en Google Calendar al crear cada aumento'],
+  ['WSP_TELEFONO',     '',   'WhatsApp (CallMeBot): número con código de país, ej +56912345678'],
+  ['WSP_APIKEY',       '',   'WhatsApp (CallMeBot): API key'],
+  ['TEAMS_WEBHOOK',    '',   'Microsoft Teams: URL del webhook de Workflows'],
+  ['TELEGRAM_TOKEN',   '',   'Telegram: token del bot'],
+  ['TELEGRAM_CHAT_ID', '',   'Telegram: chat donde se envían las alertas']
+];
 
 const ESTADO_ACTIVO  = 'ACTIVO';
 const ESTADO_CORTADO = 'CORTADO';
@@ -63,17 +85,14 @@ function setup() {
   exigirDueno_();
   const ss = getSS_();
   ensureSheets_(ss);
-  const props = PropertiesService.getScriptProperties();
-  if (!props.getProperty('EMAIL_ALERTAS')) {
-    props.setProperty('EMAIL_ALERTAS', Session.getEffectiveUser().getEmail());
-  }
-  if (!props.getProperty('DIAS_AVISO'))  props.setProperty('DIAS_AVISO', '3');
-  if (!props.getProperty('HORA_ALERTA')) props.setProperty('HORA_ALERTA', '8');
-  instalarTrigger_(Number(props.getProperty('HORA_ALERTA')));
+  migrarPropiedades_();
+  const cfg = leerConfigHoja_();
+  if (!cfg.EMAIL_ALERTAS) setConfigHoja_({ EMAIL_ALERTAS: Session.getEffectiveUser().getEmail() });
+  instalarTrigger_(getConfig_().hora);
   log_('SETUP', 'Planilla: ' + ss.getUrl());
   Logger.log('Listo. Planilla: ' + ss.getUrl());
-  Logger.log('Alertas a: ' + props.getProperty('EMAIL_ALERTAS'));
-  if (!props.getProperty('LOGIN_HASH')) generarClaveAcceso();
+  Logger.log('Alertas a: ' + leerConfigHoja_().EMAIL_ALERTAS);
+  if (!leerUsuarios_().length) generarClaveAcceso();
 }
 
 function getSS_() {
@@ -96,7 +115,7 @@ function getSS_() {
  * no borra ni modifica otras hojas que ya tenga.
  */
 function cambiarPlanilla(token, urlOId) {
-  exigirSesion_(token);
+  exigirAdmin_(token);
   const txt = String(urlOId || '').trim();
   const m = txt.match(/\/d\/([a-zA-Z0-9_-]{20,})/) || txt.match(/^([a-zA-Z0-9_-]{20,})$/);
   if (!m) throw new Error('Pega la URL completa de la planilla (https://docs.google.com/spreadsheets/d/…).');
@@ -108,12 +127,31 @@ function cambiarPlanilla(token, urlOId) {
     const h = ss.getSheetByName(n);
     if (h && h.getLastRow() === 0 && h.getLastColumn() === 0 && ss.getSheets().length > 1) ss.deleteSheet(h);
   });
+  // Llevar usuarios, sesiones y configuración a la planilla nueva si ahí no hay
+  const usuarios = leerUsuarios_(), config = leerConfigHoja_(), sesiones = leer_(SH_SESIONES);
   PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
+  CACHE_ = {};
+  if (!leerUsuarios_().length) agregarFilas_(SH_USUARIOS, usuarios.map(filaUsuario_));
+  if (!leer_(SH_SESIONES).length) agregarFilas_(SH_SESIONES, sesiones);
+  const cfgNueva = leerConfigHoja_(), faltan = {};
+  Object.keys(config).forEach(function (k) { if (config[k] !== '' && cfgNueva[k] === '') faltan[k] = config[k]; });
+  setConfigHoja_(faltan);
   log_('PLANILLA_CAMBIADA', ss.getName() + ' · ' + ss.getUrl());
   return { nombre: ss.getName(), url: ss.getUrl() };
 }
 
 function ensureSheets_(ss) {
+  ensureHojas_(ss);
+  const cfg = ss.getSheetByName(SH_CONFIG);
+  const existentes = cfg.getDataRange().getValues().map(function (r) { return String(r[0]); });
+  const nuevas = CONFIG_DEF.filter(function (d) { return existentes.indexOf(d[0]) < 0; });
+  if (nuevas.length) {
+    const r = cfg.getRange(cfg.getLastRow() + 1, 1, nuevas.length, 3);
+    r.setNumberFormat('@').setValues(nuevas);
+  }
+}
+
+function ensureHojas_(ss) {
   Object.keys(HEADERS).forEach(function (name) {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
@@ -173,7 +211,9 @@ function doPost(e) {
     enviarPrueba: enviarPrueba,
     detectarChatTelegram: detectarChatTelegram,
     importarDatos: importarDatos,
-    cambiarPlanilla: cambiarPlanilla
+    cambiarPlanilla: cambiarPlanilla,
+    listarUsuarios: listarUsuarios,
+    guardarUsuario: guardarUsuario
   };
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return jsonOut_({ ok: false, error: 'Solicitud inválida.' }); }
@@ -242,100 +282,260 @@ function claveAleatoria_(largo) {
   return out;
 }
 
-function guardarCredenciales_(usuario, clave) {
-  const sal = Utilities.getUuid();
+// ── Usuarios (hoja USUARIOS) ──
+// La clave nunca se guarda en texto: HASH + SAL. Para resetear la clave de
+// alguien desde la planilla, escribe la clave nueva en CLAVE_NUEVA: en su
+// próximo login se convierte en hash y esa celda se borra.
+
+let CACHE_ = {};
+let USUARIO_ACTUAL_ = '';
+
+function normUsuario_(u) { return String(u || '').trim().toLowerCase(); }
+
+// Los hash en base64 pueden empezar con "+" o "=" y Sheets los tomaría como
+// número o fórmula: en la hoja se guardan con prefijo "h:".
+function filaUsuario_(u) {
+  const f = {};
+  Object.keys(u).forEach(function (k) { f[k] = u[k]; });
+  if (f.HASH && String(f.HASH).indexOf('h:') !== 0) f.HASH = 'h:' + f.HASH;
+  return f;
+}
+
+/** Hash del token de sesión, en hexadecimal (seguro para guardar en una celda). */
+function tokenHash_(token) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(token), Utilities.Charset.UTF_8)
+    .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
+}
+
+function leerUsuarios_() {
+  if (!CACHE_.usuarios) {
+    migrarPropiedades_();
+    CACHE_.usuarios = leer_(SH_USUARIOS).map(function (u) {
+      u.USUARIO = normUsuario_(u.USUARIO);
+      u.HASH = String(u.HASH || '').replace(/^h:/, '');
+      return u;
+    });
+  }
+  return CACHE_.usuarios;
+}
+
+function buscarUsuario_(usuario) {
+  const n = normUsuario_(usuario);
+  return leerUsuarios_().filter(function (u) { return u.USUARIO === n; })[0] || null;
+}
+
+function esActivo_(u) { return u && String(u.ACTIVO).toUpperCase() !== 'NO' && u.ACTIVO !== false; }
+function esAdmin_(u) { return u && String(u.ROL).toUpperCase() === 'ADMIN'; }
+
+function guardarUsuarioFila_(u) {
+  u.USUARIO = normUsuario_(u.USUARIO);
+  escribirFila_(SH_USUARIOS, filaUsuario_(u), u._row || null);
+  CACHE_.usuarios = null;
+}
+
+function setClave_(u, clave) {
+  u.SAL = Utilities.getUuid();
+  u.HASH = hashClave_(clave, u.SAL);
+  u.CLAVE_NUEVA = '';
+}
+
+function validarUsuario_(usuario) {
+  if (!/^[a-z0-9._@-]{3,60}$/.test(usuario)) throw new Error('Usuario inválido (3 a 60 caracteres: letras, números, . _ - @).');
+}
+
+function validarClave_(clave) {
+  if (String(clave || '').length < 8) throw new Error('La clave debe tener al menos 8 caracteres.');
+}
+
+/** Pasa a la planilla lo que versiones anteriores guardaban en Script Properties. */
+function migrarPropiedades_() {
+  if (CACHE_.migrado) return;
+  CACHE_.migrado = true;
   const props = PropertiesService.getScriptProperties();
-  props.setProperties({
-    LOGIN_USUARIO: String(usuario).trim().toLowerCase(),
-    LOGIN_SAL: sal,
-    LOGIN_HASH: hashClave_(clave, sal)
+  const p = props.getProperties();
+  const claves = Object.keys(p).filter(function (k) { return k !== 'SPREADSHEET_ID'; });
+  if (!claves.length) return;
+
+  if (p.LOGIN_HASH && !leer_(SH_USUARIOS).length) {
+    agregarFilas_(SH_USUARIOS, [filaUsuario_({
+      USUARIO: normUsuario_(p.LOGIN_USUARIO || 'admin'), NOMBRE: 'Administrador', ROL: 'ADMIN', ACTIVO: 'SI',
+      HASH: p.LOGIN_HASH, SAL: p.LOGIN_SAL, CLAVE_NUEVA: '', CREADO: new Date(), ULTIMO_ACCESO: ''
+    })]);
+  }
+  // Las sesiones antiguas no se migran: basta con volver a entrar.
+
+  const cfg = {};
+  CONFIG_DEF.forEach(function (d) {
+    if (p[d[0]] === undefined) return;
+    cfg[d[0]] = (d[0] === 'USAR_CALENDAR' || d[0] === 'ICS_INVITACION') ? (p[d[0]] === 'true' ? 'SI' : 'NO') : p[d[0]];
   });
-  borrarSesiones_();
+  setConfigHoja_(cfg, true);
+
+  claves.forEach(function (k) { props.deleteProperty(k); });
+  log_('MIGRACION', 'Login, sesiones y configuración movidos a la planilla');
 }
 
 /**
- * Ejecutar desde el editor para crear (o resetear si la olvidaste) la clave.
- * La clave nueva aparece en el Registro de ejecución. Cierra todas las sesiones.
+ * Ejecutar desde el editor para crear el usuario "admin" (si no hay usuarios)
+ * o resetear la clave del primer ADMIN. La clave aparece en el Registro de
+ * ejecución. Cierra las sesiones de ese usuario.
  */
 function generarClaveAcceso() {
   exigirDueno_();
-  const props = PropertiesService.getScriptProperties();
-  const usuario = props.getProperty('LOGIN_USUARIO') || 'admin';
+  getSS_();
+  let u = leerUsuarios_().filter(esAdmin_)[0];
+  if (!u) u = { USUARIO: 'admin', NOMBRE: 'Administrador', ROL: 'ADMIN', ACTIVO: 'SI', CREADO: new Date(), ULTIMO_ACCESO: '' };
   const clave = claveAleatoria_(12);
-  guardarCredenciales_(usuario, clave);
+  setClave_(u, clave);
+  u.ACTIVO = 'SI';
+  guardarUsuarioFila_(u);
+  borrarSesiones_(u.USUARIO);
   CacheService.getScriptCache().remove('LOGIN_FALLOS');
-  log_('CLAVE_GENERADA', 'Clave regenerada desde el editor');
-  Logger.log('Usuario: ' + usuario);
+  log_('CLAVE_GENERADA', 'Clave de ' + u.USUARIO + ' regenerada desde el editor');
+  Logger.log('Usuario: ' + u.USUARIO);
   Logger.log('Clave:   ' + clave);
-  Logger.log('Entra a la app y cámbiala en Configuración → Acceso.');
+  Logger.log('Entra a la app y cámbiala en Configuración → Mi cuenta.');
 }
 
 function iniciarSesion(usuario, clave, recordar) {
   const cache = CacheService.getScriptCache();
   const fallos = Number(cache.get('LOGIN_FALLOS') || 0);
   if (fallos >= MAX_FALLOS) throw new Error('Demasiados intentos fallidos. Espera ' + BLOQUEO_MIN + ' minutos.');
+  if (!leerUsuarios_().length) throw new Error('Aún no hay usuarios. Ejecuta generarClaveAcceso() en el editor de Apps Script.');
 
-  const p = PropertiesService.getScriptProperties().getProperties();
-  if (!p.LOGIN_HASH) throw new Error('La clave aún no está configurada. Ejecuta generarClaveAcceso() en el editor de Apps Script.');
+  return conLock_(function () {
+    const u = buscarUsuario_(usuario);
+    let ok = false;
+    if (u && esActivo_(u)) {
+      if (u.CLAVE_NUEVA !== '' && u.CLAVE_NUEVA != null) {
+        // Clave puesta a mano en la planilla: se acepta y se convierte en hash
+        ok = String(clave || '') === String(u.CLAVE_NUEVA);
+        if (ok) setClave_(u, String(clave));
+      } else {
+        ok = !!u.HASH && hashClave_(String(clave || ''), u.SAL) === u.HASH;
+      }
+    }
+    if (!ok) {
+      cache.put('LOGIN_FALLOS', String(fallos + 1), BLOQUEO_MIN * 60);
+      Utilities.sleep(1000);
+      log_('LOGIN_FALLIDO', 'Usuario: ' + String(usuario || '').slice(0, 60));
+      throw new Error('Usuario o clave incorrectos.');
+    }
+    cache.remove('LOGIN_FALLOS');
 
-  const okUsuario = String(usuario || '').trim().toLowerCase() === p.LOGIN_USUARIO;
-  const okClave = hashClave_(String(clave || ''), p.LOGIN_SAL) === p.LOGIN_HASH;
-  if (!okUsuario || !okClave) {
-    cache.put('LOGIN_FALLOS', String(fallos + 1), BLOQUEO_MIN * 60);
-    Utilities.sleep(1000);
-    log_('LOGIN_FALLIDO', 'Usuario: ' + String(usuario || '').slice(0, 60));
-    throw new Error('Usuario o clave incorrectos.');
-  }
-  cache.remove('LOGIN_FALLOS');
-
-  limpiarSesionesVencidas_();
-  const token = Utilities.getUuid() + Utilities.getUuid();
-  const vence = Date.now() + (recordar ? SESION_DIAS_LARGA * 86400000 : SESION_HORAS_CORTA * 3600000);
-  PropertiesService.getScriptProperties().setProperty('SES_' + sha256_(token), String(vence));
-  log_('LOGIN', recordar ? 'Sesión de ' + SESION_DIAS_LARGA + ' días' : 'Sesión de ' + SESION_HORAS_CORTA + ' horas');
-  return { token: token, vence: vence, usuario: p.LOGIN_USUARIO };
-}
-
-function cerrarSesion(token) {
-  if (token) PropertiesService.getScriptProperties().deleteProperty('SES_' + sha256_(String(token)));
-  return true;
-}
-
-function exigirSesion_(token) {
-  if (!token) throw new Error('SESION_INVALIDA');
-  const key = 'SES_' + sha256_(String(token));
-  const props = PropertiesService.getScriptProperties();
-  const vence = Number(props.getProperty(key) || 0);
-  if (!vence || vence < Date.now()) {
-    if (vence) props.deleteProperty(key);
-    throw new Error('SESION_INVALIDA');
-  }
-}
-
-function limpiarSesionesVencidas_() {
-  const props = PropertiesService.getScriptProperties();
-  const all = props.getProperties(), ahora = Date.now();
-  Object.keys(all).forEach(function (k) {
-    if (k.indexOf('SES_') === 0 && Number(all[k]) < ahora) props.deleteProperty(k);
+    limpiarSesionesVencidas_();
+    const token = Utilities.getUuid() + Utilities.getUuid();
+    const vence = Date.now() + (recordar ? SESION_DIAS_LARGA * 86400000 : SESION_HORAS_CORTA * 3600000);
+    agregarFilas_(SH_SESIONES, [{ TOKEN_HASH: tokenHash_(token), USUARIO: u.USUARIO, VENCE: vence, CREADO: new Date() }]);
+    u.ULTIMO_ACCESO = new Date();
+    guardarUsuarioFila_(u);
+    USUARIO_ACTUAL_ = u.USUARIO;
+    log_('LOGIN', recordar ? 'Sesión de ' + SESION_DIAS_LARGA + ' días' : 'Sesión de ' + SESION_HORAS_CORTA + ' horas');
+    return { token: token, vence: vence, usuario: u.USUARIO, nombre: u.NOMBRE || u.USUARIO, rol: String(u.ROL).toUpperCase() };
   });
 }
 
-function borrarSesiones_() {
-  const props = PropertiesService.getScriptProperties();
-  Object.keys(props.getProperties()).forEach(function (k) { if (k.indexOf('SES_') === 0) props.deleteProperty(k); });
+function cerrarSesion(token) {
+  if (!token) return true;
+  const h = tokenHash_(token);
+  const s = leer_(SH_SESIONES).filter(function (x) { return x.TOKEN_HASH === h; })[0];
+  if (s) getSheet_(SH_SESIONES).deleteRow(s._row);
+  return true;
 }
 
+/** Valida el token y devuelve el usuario. Lanza SESION_INVALIDA si no sirve. */
+function exigirSesion_(token) {
+  if (!token) throw new Error('SESION_INVALIDA');
+  const h = tokenHash_(token);
+  const s = leer_(SH_SESIONES).filter(function (x) { return x.TOKEN_HASH === h; })[0];
+  if (!s) throw new Error('SESION_INVALIDA');
+  const u = buscarUsuario_(s.USUARIO);
+  if (Number(s.VENCE) < Date.now() || !esActivo_(u)) {
+    getSheet_(SH_SESIONES).deleteRow(s._row);
+    throw new Error('SESION_INVALIDA');
+  }
+  USUARIO_ACTUAL_ = u.USUARIO;
+  return u;
+}
+
+function exigirAdmin_(token) {
+  const u = exigirSesion_(token);
+  if (!esAdmin_(u)) throw new Error('Solo un administrador puede hacer esto.');
+  return u;
+}
+
+function borrarFilas_(name, filtro) {
+  const sh = getSheet_(name);
+  leer_(name).filter(filtro).map(function (x) { return x._row; }).sort(function (a, b) { return b - a; })
+    .forEach(function (r) { sh.deleteRow(r); });
+}
+
+function limpiarSesionesVencidas_() {
+  const ahora = Date.now();
+  borrarFilas_(SH_SESIONES, function (x) { return Number(x.VENCE) < ahora; });
+}
+
+function borrarSesiones_(usuario) {
+  const n = normUsuario_(usuario);
+  borrarFilas_(SH_SESIONES, function (x) { return !usuario || normUsuario_(x.USUARIO) === n; });
+}
+
+/** Mi cuenta: cambiar mi usuario y/o clave. Cierra mis sesiones. */
 function cambiarCredenciales(token, actual, nuevoUsuario, nuevaClave) {
-  exigirSesion_(token);
-  const p = PropertiesService.getScriptProperties().getProperties();
-  if (hashClave_(String(actual || ''), p.LOGIN_SAL) !== p.LOGIN_HASH) throw new Error('La clave actual no es correcta.');
-  const usuario = String(nuevoUsuario || '').trim().toLowerCase() || p.LOGIN_USUARIO;
-  if (!/^[a-z0-9._@-]{3,60}$/.test(usuario)) throw new Error('Usuario inválido (3 a 60 caracteres: letras, números, . _ - @).');
-  const clave = String(nuevaClave || '');
-  if (clave.length < 8) throw new Error('La nueva clave debe tener al menos 8 caracteres.');
-  guardarCredenciales_(usuario, clave);
-  log_('CLAVE_CAMBIADA', 'Usuario: ' + usuario);
-  return true; // todas las sesiones quedan cerradas; hay que volver a entrar
+  const u = exigirSesion_(token);
+  if (hashClave_(String(actual || ''), u.SAL) !== u.HASH) throw new Error('La clave actual no es correcta.');
+  const anterior = u.USUARIO;
+  const usuario = normUsuario_(nuevoUsuario) || anterior;
+  validarUsuario_(usuario);
+  if (usuario !== anterior && buscarUsuario_(usuario)) throw new Error('Ya existe un usuario "' + usuario + '".');
+  validarClave_(nuevaClave);
+  u.USUARIO = usuario;
+  setClave_(u, String(nuevaClave));
+  guardarUsuarioFila_(u);
+  borrarSesiones_(anterior);
+  log_('CLAVE_CAMBIADA', 'Usuario: ' + usuario + (usuario !== anterior ? ' (antes ' + anterior + ')' : ''));
+  return true;
+}
+
+// ── Administración de usuarios (solo ADMIN) ──
+
+function listarUsuarios(token) {
+  exigirAdmin_(token);
+  return leerUsuarios_().map(function (u) {
+    return {
+      usuario: u.USUARIO, nombre: u.NOMBRE || '', rol: String(u.ROL || 'OPERADOR').toUpperCase(), activo: esActivo_(u),
+      ultimoAcceso: u.ULTIMO_ACCESO instanceof Date ? Utilities.formatDate(u.ULTIMO_ACCESO, tz_(), 'dd-MM-yyyy HH:mm') : '',
+      claveTemporal: u.CLAVE_NUEVA !== '' && u.CLAVE_NUEVA != null
+    };
+  });
+}
+
+/** Crea (nuevo=true) o edita un usuario. clave es obligatoria al crear; al editar, opcional (resetea). */
+function guardarUsuario(token, d) {
+  const yo = exigirAdmin_(token);
+  return conLock_(function () {
+    const usuario = normUsuario_(d.usuario);
+    validarUsuario_(usuario);
+    const rol = String(d.rol || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'OPERADOR';
+    let u = buscarUsuario_(usuario);
+    if (d.nuevo) {
+      if (u) throw new Error('Ya existe un usuario "' + usuario + '".');
+      validarClave_(d.clave);
+      u = { USUARIO: usuario, CREADO: new Date(), ULTIMO_ACCESO: '' };
+    } else if (!u) throw new Error('Usuario no encontrado.');
+
+    const activo = d.activo !== false;
+    if (u.USUARIO === yo.USUARIO && (!activo || rol !== 'ADMIN')) throw new Error('No puedes quitarte a ti mismo el rol de administrador ni desactivarte.');
+
+    u.NOMBRE = String(d.nombre || '').trim();
+    u.ROL = rol;
+    u.ACTIVO = activo ? 'SI' : 'NO';
+    if (d.clave) { validarClave_(d.clave); setClave_(u, String(d.clave)); }
+    guardarUsuarioFila_(u);
+    if (d.clave || !activo) borrarSesiones_(usuario);
+    log_(d.nuevo ? 'USUARIO_CREADO' : 'USUARIO_EDITADO', usuario + ' · ' + rol + (activo ? '' : ' · inactivo') + (d.clave && !d.nuevo ? ' · clave reseteada' : ''));
+    return listarUsuarios(token);
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -388,7 +588,7 @@ function leer_(name) {
       h.forEach(function (k, j) { o[k] = row[j]; });
       return o;
     })
-    .filter(function (o) { return o.ID !== '' || name === SH_HISTORIAL; });
+    .filter(function (o) { return name === SH_HISTORIAL || o[h[0]] !== ''; });
 }
 
 function escribirFila_(name, obj, rowNum) {
@@ -406,7 +606,8 @@ function formatearFila_(sh, name, rowNum) {
   h.forEach(function (k, j) {
     const c = sh.getRange(rowNum, j + 1);
     if (/^FECHA_|^ULTIMO_AVISO$/.test(k)) c.setNumberFormat('dd-mm-yyyy');
-    else if (k === 'CREADO' || (name === SH_HISTORIAL && k === 'FECHA')) c.setNumberFormat('dd-mm-yyyy hh:mm');
+    else if (k === 'CREADO' || k === 'ULTIMO_ACCESO' || (name === SH_HISTORIAL && k === 'FECHA')) c.setNumberFormat('dd-mm-yyyy hh:mm');
+    else if (k === 'HASH' || k === 'SAL' || k === 'CLAVE_NUEVA' || k === 'TOKEN_HASH' || k === 'USUARIO') c.setNumberFormat('@');
     else if (k === 'MONTO' || k === 'CUPO_BASE') c.setNumberFormat('#,##0.00');
     else if (k === 'TARJETA_ULT4' || k === 'DOCUMENTO' || k === 'TELEFONO') c.setNumberFormat('@');
   });
@@ -424,9 +625,9 @@ function conLock_(fn) {
 
 function log_(accion, detalle) {
   try {
-    let user = '';
-    try { user = Session.getActiveUser().getEmail(); } catch (e) {}
-    getSheet_(SH_HISTORIAL).appendRow([new Date(), accion, detalle, user]);
+    let user = USUARIO_ACTUAL_;
+    if (!user) { try { user = Session.getActiveUser().getEmail(); } catch (e) {} }
+    getSheet_(SH_HISTORIAL).appendRow([new Date(), accion, detalle, user || 'sistema']);
   } catch (e) { Logger.log('No se pudo registrar historial: ' + e); }
 }
 
@@ -497,7 +698,7 @@ function aumentoDTO_(a, hoy, diasAviso, clientesById) {
 // ════════════════════════════════════════════════════════════════
 
 function obtenerDatos(token) {
-  exigirSesion_(token);
+  const yo = exigirSesion_(token);
   const hoy = hoyISO_();
   const diasAviso = getConfig_().diasAviso;
   const clientes = leer_(SH_CLIENTES);
@@ -533,7 +734,8 @@ function obtenerDatos(token) {
       vigentes: cuenta('VIGENTE'),
       programados: cuenta('PROGRAMADO')
     },
-    planillaUrl: getSS_().getUrl()
+    planillaUrl: esAdmin_(yo) ? getSS_().getUrl() : '',
+    sesion: { usuario: yo.USUARIO, nombre: yo.NOMBRE || yo.USUARIO, rol: String(yo.ROL).toUpperCase() }
   };
 }
 
@@ -660,7 +862,8 @@ function agregarFilas_(name, objs) {
   h.forEach(function (k, j) {
     const r = sh.getRange(start, j + 1, objs.length, 1);
     if (/^FECHA_|^ULTIMO_AVISO$/.test(k)) r.setNumberFormat('dd-mm-yyyy');
-    else if (k === 'CREADO') r.setNumberFormat('dd-mm-yyyy hh:mm');
+    else if (k === 'CREADO' || k === 'ULTIMO_ACCESO') r.setNumberFormat('dd-mm-yyyy hh:mm');
+    else if (k === 'HASH' || k === 'SAL' || k === 'CLAVE_NUEVA' || k === 'TOKEN_HASH' || k === 'USUARIO') r.setNumberFormat('@');
     else if (k === 'MONTO' || k === 'CUPO_BASE') r.setNumberFormat('#,##0.00');
   });
 }
@@ -804,16 +1007,50 @@ function cerrarAumento_(id, estado, nota) {
 // CONFIGURACIÓN
 // ════════════════════════════════════════════════════════════════
 
+/** Lee la hoja CONFIG como { CLAVE: 'valor' } (todo texto). */
+function leerConfigHoja_() {
+  if (!CACHE_.config) {
+    if (!CACHE_.migrado) migrarPropiedades_();
+    const out = {};
+    CONFIG_DEF.forEach(function (d) { out[d[0]] = ''; });
+    leer_(SH_CONFIG).forEach(function (r) { out[String(r.CLAVE).trim()] = String(r.VALOR == null ? '' : r.VALOR).trim(); });
+    CACHE_.config = out;
+  }
+  return CACHE_.config;
+}
+
+/** Escribe claves en la hoja CONFIG (crea la fila si no existe). */
+function setConfigHoja_(valores, sinMigrar) {
+  const keys = Object.keys(valores || {});
+  if (!keys.length) return;
+  if (!sinMigrar && !CACHE_.migrado) migrarPropiedades_();
+  const sh = getSheet_(SH_CONFIG);
+  const filas = leer_(SH_CONFIG);
+  keys.forEach(function (k) {
+    const v = valores[k] == null ? '' : String(valores[k]);
+    const f = filas.filter(function (r) { return String(r.CLAVE).trim() === k; })[0];
+    if (f) sh.getRange(f._row, 2).setNumberFormat('@').setValue(v);
+    else {
+      const def = CONFIG_DEF.filter(function (d) { return d[0] === k; })[0];
+      const r = sh.getLastRow() + 1;
+      sh.getRange(r, 1, 1, 3).setNumberFormat('@').setValues([[k, v, def ? def[2] : '']]);
+    }
+  });
+  CACHE_.config = null;
+}
+
+function siNo_(v) { return /^(si|sí|true|1|x|yes)$/i.test(String(v || '').trim()); }
+
 function getConfig_() {
-  const p = PropertiesService.getScriptProperties().getProperties();
+  const p = leerConfigHoja_();
   return {
     email: p.EMAIL_ALERTAS || '',
     diasAviso: Math.max(0, parseInt(p.DIAS_AVISO || '3', 10) || 0),
     hora: Math.min(23, Math.max(0, parseInt(p.HORA_ALERTA || '8', 10) || 0)),
     telegramToken: p.TELEGRAM_TOKEN || '',
     telegramChatId: p.TELEGRAM_CHAT_ID || '',
-    usarCalendar: p.USAR_CALENDAR === 'true',
-    icsInvitacion: p.ICS_INVITACION === 'true',
+    usarCalendar: siNo_(p.USAR_CALENDAR),
+    icsInvitacion: siNo_(p.ICS_INVITACION),
     wspTelefono: p.WSP_TELEFONO || '',
     wspApiKey: p.WSP_APIKEY || '',
     teamsWebhook: p.TEAMS_WEBHOOK || ''
@@ -821,7 +1058,7 @@ function getConfig_() {
 }
 
 function obtenerConfig(token) {
-  exigirSesion_(token);
+  exigirAdmin_(token);
   const c = getConfig_();
   const trigger = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === TRIGGER_FN; });
   return {
@@ -843,41 +1080,46 @@ function obtenerConfig(token) {
 }
 
 function guardarConfig(token, cfg) {
-  exigirSesion_(token);
-  const props = PropertiesService.getScriptProperties();
+  exigirAdmin_(token);
+  const v = {};
   const emails = String(cfg.email || '').split(/[,;\s]+/).filter(String);
   emails.forEach(function (e) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Correo inválido: ' + e); });
-  props.setProperty('EMAIL_ALERTAS', emails.join(','));
-  props.setProperty('DIAS_AVISO', String(Math.max(0, parseInt(cfg.diasAviso, 10) || 0)));
+  v.EMAIL_ALERTAS = emails.join(',');
+  v.DIAS_AVISO = String(Math.max(0, parseInt(cfg.diasAviso, 10) || 0));
   const hora = Math.min(23, Math.max(0, parseInt(cfg.hora, 10) || 0));
-  props.setProperty('HORA_ALERTA', String(hora));
-  props.setProperty('USAR_CALENDAR', cfg.usarCalendar ? 'true' : 'false');
-  props.setProperty('ICS_INVITACION', cfg.icsInvitacion ? 'true' : 'false');
+  v.HORA_ALERTA = String(hora);
+  v.USAR_CALENDAR = cfg.usarCalendar ? 'SI' : 'NO';
+  v.ICS_INVITACION = cfg.icsInvitacion ? 'SI' : 'NO';
 
   // WhatsApp (CallMeBot)
-  if (cfg.borrarWsp) { props.deleteProperty('WSP_TELEFONO'); props.deleteProperty('WSP_APIKEY'); }
+  if (cfg.borrarWsp) { v.WSP_TELEFONO = ''; v.WSP_APIKEY = ''; }
   else {
     if (cfg.wspTelefono !== undefined) {
       const tel = String(cfg.wspTelefono || '').replace(/[^\d+]/g, '');
       if (tel && !/^\+?\d{8,15}$/.test(tel)) throw new Error('Teléfono de WhatsApp inválido. Usa el formato internacional, ej: +56912345678');
-      if (tel) props.setProperty('WSP_TELEFONO', tel.charAt(0) === '+' ? tel : '+' + tel); else props.deleteProperty('WSP_TELEFONO');
+      v.WSP_TELEFONO = tel ? (tel.charAt(0) === '+' ? tel : '+' + tel) : '';
     }
-    if (cfg.wspApiKey) props.setProperty('WSP_APIKEY', String(cfg.wspApiKey).trim());
+    if (cfg.wspApiKey) v.WSP_APIKEY = String(cfg.wspApiKey).trim();
   }
 
   // Microsoft Teams (webhook de Workflows)
-  if (cfg.borrarTeams) props.deleteProperty('TEAMS_WEBHOOK');
+  if (cfg.borrarTeams) v.TEAMS_WEBHOOK = '';
   else if (cfg.teamsWebhook) {
     const url = String(cfg.teamsWebhook).trim();
     if (!/^https:\/\/[^\s]+$/.test(url)) throw new Error('La URL del webhook de Teams debe empezar con https://');
-    props.setProperty('TEAMS_WEBHOOK', url);
+    v.TEAMS_WEBHOOK = url;
   }
 
-  if (cfg.telegramToken) props.setProperty('TELEGRAM_TOKEN', String(cfg.telegramToken).trim());
-  if (cfg.borrarTelegram) { props.deleteProperty('TELEGRAM_TOKEN'); props.deleteProperty('TELEGRAM_CHAT_ID'); }
-  if (cfg.telegramChatId !== undefined && !cfg.borrarTelegram) props.setProperty('TELEGRAM_CHAT_ID', String(cfg.telegramChatId).trim());
+  // Telegram
+  if (cfg.borrarTelegram) { v.TELEGRAM_TOKEN = ''; v.TELEGRAM_CHAT_ID = ''; }
+  else {
+    if (cfg.telegramToken) v.TELEGRAM_TOKEN = String(cfg.telegramToken).trim();
+    if (cfg.telegramChatId !== undefined) v.TELEGRAM_CHAT_ID = String(cfg.telegramChatId).trim();
+  }
+
+  setConfigHoja_(v);
   instalarTrigger_(hora);
-  log_('CONFIG', 'Alertas: ' + emails.join(',') + ' · aviso ' + cfg.diasAviso + ' días · hora ' + hora);
+  log_('CONFIG', 'Alertas: ' + emails.join(',') + ' · aviso ' + v.DIAS_AVISO + ' días · hora ' + hora);
   return obtenerConfig(token);
 }
 
@@ -944,7 +1186,7 @@ function revisarAhora(token) {
 
 /** Botón "Enviar prueba" de la interfaz. */
 function enviarPrueba(token, canal) {
-  exigirSesion_(token);
+  exigirAdmin_(token);
   const cfg = getConfig_();
   const hoy = hoyISO_();
   const ejemplo = {
@@ -1228,7 +1470,7 @@ function enviarTelegram_(cfg, texto) {
  * "Detectar chat" en la app.
  */
 function detectarChatTelegram(token) {
-  exigirSesion_(token);
+  exigirAdmin_(token);
   const cfg = getConfig_();
   if (!cfg.telegramToken) throw new Error('Primero guarda el token del bot.');
   const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + cfg.telegramToken + '/getUpdates', { muteHttpExceptions: true });
@@ -1237,7 +1479,7 @@ function detectarChatTelegram(token) {
   const ups = (body.result || []).filter(function (u) { return u.message && u.message.chat; });
   if (!ups.length) throw new Error('El bot no ha recibido mensajes. Escríbele algo en Telegram y vuelve a intentar.');
   const chat = ups[ups.length - 1].message.chat;
-  PropertiesService.getScriptProperties().setProperty('TELEGRAM_CHAT_ID', String(chat.id));
+  setConfigHoja_({ TELEGRAM_CHAT_ID: String(chat.id) });
   return { chatId: String(chat.id), nombre: chat.title || [chat.first_name, chat.last_name].filter(String).join(' ') || chat.username || '' };
 }
 

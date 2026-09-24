@@ -118,6 +118,7 @@
   summary { cursor: pointer; color: var(--blue); }
   .pasos { margin: 8px 0 0; padding-left: 20px; color: var(--muted); } .pasos li { margin-bottom: 4px; }
   .aviso-setup { background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  body:not(.admin) .solo-admin { display: none !important; }
 </style>
 </head>
 <body>
@@ -125,7 +126,7 @@
 <header>
   <div>
     <h1>💳 Control de Cupos</h1>
-    <div class="hoy" id="hoy"></div>
+    <div class="hoy"><span id="hoy"></span> <span id="quien"></span></div>
   </div>
   <div class="actions">
     <button class="small" onclick="cargar()">↻ Actualizar</button>
@@ -204,7 +205,7 @@
 
   <!-- CONFIG -->
   <section class="tab" id="tab-config">
-    <div class="panel">
+    <div class="panel solo-admin">
       <h2>Alertas <span class="actions"><button type="button" class="small" onclick="revisarAhora()">Revisar vencimientos ahora</button></span></h2>
       <div class="chips" id="cfg-chips"></div>
       <div id="cfg-aviso"></div>
@@ -294,8 +295,16 @@
         </div>
       </form>
     </div>
+    <div class="panel solo-admin">
+      <h2>Usuarios <button type="button" class="primary small" onclick="abrirUsuario()">+ Nuevo usuario</button></h2>
+      <p class="hint" style="margin-top:-6px">Se guardan en la hoja <b>USUARIOS</b> de la planilla. <b>ADMIN</b>: todo. <b>OPERADOR</b>: clientes y aumentos, sin configuración ni usuarios.</p>
+      <table class="resp">
+        <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+        <tbody id="t-usuarios"></tbody>
+      </table>
+    </div>
     <div class="panel">
-      <h2>Acceso</h2>
+      <h2>Mi cuenta <span class="sub" id="mi-usuario"></span></h2>
       <form onsubmit="cambiarCredenciales(event)">
         <div class="grid2">
           <div class="field"><label>Nuevo usuario (opcional)</label><input id="k-usuario" autocomplete="username" autocapitalize="none" placeholder="Deja vacío para no cambiarlo"></div>
@@ -309,9 +318,10 @@
         <button type="submit" class="primary">Cambiar clave</button>
       </form>
     </div>
-    <div class="panel">
+    <div class="panel solo-admin">
       <h2>Base de datos</h2>
-      <p class="status-line">Los datos se guardan en: <a id="link-planilla" href="#" target="_blank">cargando…</a></p>
+      <p class="status-line">Todo se guarda en la planilla: <a id="link-planilla" href="#" target="_blank">cargando…</a></p>
+      <p class="hint">Hojas: CLIENTES, AUMENTOS, HISTORIAL, USUARIOS (claves cifradas), CONFIG (alertas) y SESIONES. Para resetear la clave de alguien directamente en la planilla, escribe la clave nueva en su columna <b>CLAVE_NUEVA</b>: se usa en su próximo ingreso y se borra.</p>
       <form onsubmit="cambiarPlanilla(event)">
         <div class="field">
           <label>Usar otra planilla de Google Sheets</label>
@@ -351,6 +361,27 @@
   </form>
 </dialog>
 <datalist id="bancos"></datalist>
+
+<!-- DIALOGO USUARIO -->
+<dialog id="dlg-usuario">
+  <form onsubmit="guardarUsuario(event)">
+    <h3 id="dlg-usuario-titulo">Nuevo usuario</h3>
+    <input type="hidden" id="u-nuevo">
+    <div class="grid2">
+      <div class="field"><label>Usuario *</label><input id="u-usuario" autocapitalize="none" autocomplete="off" required pattern="[A-Za-z0-9._@\-]{3,60}"></div>
+      <div class="field"><label>Nombre</label><input id="u-nombre"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Rol</label><select id="u-rol"><option value="OPERADOR">OPERADOR</option><option value="ADMIN">ADMIN</option></select></div>
+      <div class="field"><label id="u-clave-label">Clave * (mínimo 8)</label><input id="u-clave" type="text" autocomplete="off" minlength="8"><div class="hint" id="u-clave-hint"></div></div>
+    </div>
+    <div class="field check"><input type="checkbox" id="u-activo" checked><label for="u-activo" style="margin:0">Activo</label></div>
+    <div class="dlg-actions">
+      <button type="button" onclick="cerrar('dlg-usuario')">Cancelar</button>
+      <button type="submit" class="primary">Guardar</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- DIALOGO IMPORTAR -->
 <dialog id="dlg-importar" class="wide">
@@ -500,11 +531,20 @@
       .then(function (r) {
         btn.disabled = false;
         guardarToken(r.token, $('l-recordar').checked);
+        aplicarSesion(r);
         $('login').classList.remove('show');
         $('l-clave').value = '';
         cargar();
       })
       .catch(function (err) { btn.disabled = false; $('l-error').textContent = err.message || String(err); });
+  }
+  var SESION = null;
+  function aplicarSesion(se) {
+    SESION = se;
+    var admin = se && se.rol === 'ADMIN';
+    document.body.classList.toggle('admin', !!admin);
+    $('quien').textContent = se ? '· ' + (se.nombre || se.usuario) + (admin ? ' (admin)' : '') : '';
+    $('mi-usuario').textContent = se ? '(' + se.usuario + ')' : '';
   }
   function salir() {
     var t = TOKEN;
@@ -541,7 +581,7 @@
       document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
       b.classList.add('active');
       $('tab-' + b.dataset.tab).classList.add('active');
-      if (b.dataset.tab === 'config') cargarConfig();
+      if (b.dataset.tab === 'config' && SESION && SESION.rol === 'ADMIN') { cargarConfig(); cargarUsuarios(); }
     });
   });
 
@@ -550,6 +590,7 @@
     call('obtenerDatos', [], function (d) {
       DATA = d;
       $('hoy').textContent = 'Hoy: ' + dmy(d.hoy);
+      aplicarSesion(d.sesion);
       $('s-vencidos').textContent = d.resumen.vencidos;
       $('s-hoy').textContent = d.resumen.venceHoy;
       $('s-proximos').textContent = d.resumen.porVencer;
@@ -862,6 +903,38 @@
       ? '<div class="aviso-setup">⚠️ Falta la configuración inicial: en el editor de Apps Script ejecuta <b>setup</b> una vez (crea la planilla, el correo de alertas y la revisión diaria). Luego pulsa <b>Guardar configuración</b>.</div>' : '';
   }
   function cargarConfig() { call('obtenerConfig', [], pintarConfig); }
+
+  // ── usuarios (admin) ───────────────────────────────────
+  var USUARIOS = [];
+  function cargarUsuarios() { call('listarUsuarios', [], pintarUsuarios); }
+  function pintarUsuarios(lista) {
+    USUARIOS = lista;
+    $('t-usuarios').innerHTML = lista.map(function (u) {
+      return '<tr' + (u.activo ? '' : ' style="opacity:.55"') + '><td data-l=""><b>' + esc(u.usuario) + '</b><div class="sub">' + esc(u.nombre) + '</div></td>' +
+        '<td data-l="Rol"><span class="badge ' + (u.rol === 'ADMIN' ? 'b-PROGRAMADO' : 'b-CORTADO') + '">' + u.rol + '</span></td>' +
+        '<td data-l="Estado">' + (u.activo ? 'Activo' : 'Inactivo') + (u.claveTemporal ? ' <span class="badge b-POR_VENCER">clave temporal</span>' : '') + '</td>' +
+        '<td data-l="Último acceso">' + esc(u.ultimoAcceso || '—') + '</td>' +
+        '<td><div class="actions"><button class="small" onclick="abrirUsuario(\'' + esc(u.usuario) + '\')">Editar</button></div></td></tr>';
+    }).join('') || '<tr><td colspan="5" class="empty">Sin usuarios.</td></tr>';
+  }
+  function abrirUsuario(usuario) {
+    var u = USUARIOS.filter(function (x) { return x.usuario === usuario; })[0];
+    var nuevo = !u;
+    u = u || { usuario: '', nombre: '', rol: 'OPERADOR', activo: true };
+    $('dlg-usuario-titulo').textContent = nuevo ? 'Nuevo usuario' : 'Editar usuario';
+    $('u-nuevo').value = nuevo ? '1' : '';
+    $('u-usuario').value = u.usuario; $('u-usuario').readOnly = !nuevo;
+    $('u-nombre').value = u.nombre; $('u-rol').value = u.rol; $('u-activo').checked = u.activo;
+    $('u-clave').value = ''; $('u-clave').required = nuevo;
+    $('u-clave-label').textContent = nuevo ? 'Clave * (mínimo 8)' : 'Nueva clave (opcional)';
+    $('u-clave-hint').textContent = nuevo ? 'Entrégasela a la persona; podrá cambiarla en "Mi cuenta".' : 'Déjala vacía para no cambiarla. Si la cambias, se cierran sus sesiones.';
+    $('dlg-usuario').showModal();
+  }
+  function guardarUsuario(e) {
+    e.preventDefault();
+    var d = { nuevo: !!$('u-nuevo').value, usuario: $('u-usuario').value, nombre: $('u-nombre').value, rol: $('u-rol').value, activo: $('u-activo').checked, clave: $('u-clave').value };
+    call('guardarUsuario', [d], function (lista) { cerrar('dlg-usuario'); pintarUsuarios(lista); toast('Usuario guardado'); }, e.submitter);
+  }
   function cambiarPlanilla(e) {
     e.preventDefault();
     if (!confirm('¿Guardar los datos desde ahora en esta planilla?')) return;
