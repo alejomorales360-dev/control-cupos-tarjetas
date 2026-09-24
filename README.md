@@ -59,6 +59,21 @@ clasp push
 clasp open    # ejecuta setup() desde el editor y luego implementa como Web App (paso 6)
 ```
 
+## Importar clientes desde Excel
+
+**Clientes → ⬆ Importar Excel**. La primera fila debe tener los encabezados; se reconocen (sin importar mayúsculas/tildes):
+
+| Dato | Encabezados aceptados |
+|---|---|
+| Nombre (obligatorio) | `Cardholder name`, `Nombre`, `Cliente`, `Titular` |
+| Cupo base | `cantidad USD base`, `Cupo base` |
+| Inicio del aumento | `fecha aumento`, `Desde`, `Fecha inicio` |
+| Fin del aumento | `fecha termino`, `Hasta`, `Fecha fin` |
+| Monto del aumento | `cantidad USD solicitada`, `Monto`, `Monto solicitado` |
+| Otros (opcionales) | `Banco`, `Tarjeta` (últimos 4), `Documento`, `Motivo` |
+
+Antes de guardar muestra una vista previa (nuevos, actualizados, errores por fila). Si una fila trae monto + fechas se crea también el aumento. Los clientes se identifican por nombre, así que **reimportar el mismo archivo no duplica** clientes ni aumentos: sirve para ir completando la planilla y volver a subirla. El archivo se lee en el navegador; solo se envían las filas a la API.
+
 ## Configurar las alertas
 
 En la app → pestaña **Configuración**:

@@ -98,6 +98,11 @@
     .actions { justify-content: flex-start; }
     .alert-row td:first-child { border-left: 0; }
   }
+  .imp-table { font-size: 13px; max-height: 45vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; }
+  .imp-table td, .imp-table th { padding: 6px 8px; }
+  .imp-table tr.err td { background: var(--red-bg); }
+  .imp-sum { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  dialog.wide { width: min(760px, calc(100vw - 32px)); }
 </style>
 </head>
 <body>
@@ -173,7 +178,7 @@
   <!-- CLIENTES -->
   <section class="tab" id="tab-clientes">
     <div class="panel">
-      <h2>Clientes <button class="primary small" onclick="abrirCliente()">+ Nuevo cliente</button></h2>
+      <h2>Clientes <span class="actions"><button class="small" onclick="abrirImportar()">⬆ Importar Excel</button><button class="primary small" onclick="abrirCliente()">+ Nuevo cliente</button></span></h2>
       <div class="toolbar"><input id="f-cli-q" placeholder="Buscar por nombre, documento o banco…" oninput="renderClientes()"></div>
       <table class="resp">
         <thead><tr><th>Cliente</th><th>Tarjeta</th><th class="num">Cupo base</th><th class="num">Aumento vigente</th><th class="num">Cupo actual</th><th></th></tr></thead>
@@ -269,7 +274,7 @@
     </div>
     <div class="grid2">
       <div class="field"><label>Últimos 4 dígitos de la tarjeta</label><input id="c-tarjeta" inputmode="numeric" maxlength="4" pattern="\d{0,4}"><div class="hint">No guardes el número completo.</div></div>
-      <div class="field"><label>Cupo base (USD) *</label><input id="c-cupo" type="number" min="0" step="0.01" required></div>
+      <div class="field"><label>Cupo base (USD)</label><input id="c-cupo" type="number" min="0" step="0.01"></div>
     </div>
     <div class="grid2">
       <div class="field"><label>Email</label><input id="c-email" type="email"></div>
@@ -284,6 +289,26 @@
   </form>
 </dialog>
 <datalist id="bancos"></datalist>
+
+<!-- DIALOGO IMPORTAR -->
+<dialog id="dlg-importar" class="wide">
+  <form onsubmit="confirmarImportacion(event)">
+    <h3>Importar desde Excel</h3>
+    <div class="field">
+      <input type="file" id="imp-file" accept=".xlsx,.xls,.csv" onchange="leerExcel(this.files[0])">
+      <div class="hint">
+        Primera fila = encabezados. Se reconocen: <b>Cardholder name / Nombre</b> (obligatorio), <b>cantidad USD base / Cupo base</b>,
+        <b>fecha aumento / Desde</b>, <b>fecha termino / Hasta</b>, <b>cantidad USD solicitada / Monto</b>, Banco, Tarjeta (últimos 4), Documento, Motivo.
+        Si una fila trae monto y fechas, también se crea el aumento. Reimportar el mismo archivo no duplica nada.
+      </div>
+    </div>
+    <div id="imp-resultado"></div>
+    <div class="dlg-actions">
+      <button type="button" onclick="cerrar('dlg-importar')">Cancelar</button>
+      <button type="submit" class="primary" id="imp-btn" disabled>Importar</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- DIALOGO AUMENTO -->
 <dialog id="dlg-aumento">
@@ -359,6 +384,7 @@
     if (d === 0) return 'hoy';
     return 'faltan ' + d + ' día' + (d === 1 ? '' : 's');
   }
+  function cupo(n) { return n == null || n === 0 ? '—' : money(n); }
   function tarjetaTxt(banco, t) { return [banco, t ? '****' + t : ''].filter(Boolean).join(' '); }
   function toast(msg, err) {
     var t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block';
@@ -374,7 +400,12 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS
       body: JSON.stringify({ fn: fn, args: args || [] })
     })
-      .catch(function () { throw new Error('Sin conexión con el servidor. Revisa tu internet e intenta de nuevo.'); })
+      .catch(function () {
+        throw new Error(navigator.onLine === false
+          ? 'Sin conexión a internet.'
+          : 'No se pudo conectar con la API de Apps Script. Revisa que la implementación tenga el Codigo.gs actual, ' +
+            '"Quién tiene acceso: Cualquier persona" y que se haya publicado como "Nueva versión".');
+      })
       .then(function (r) { return r.json().catch(function () { throw new Error('Respuesta inválida del servidor (HTTP ' + r.status + ').'); }); })
       .then(function (r) { if (!r.ok) throw new Error(r.error || 'Error desconocido.'); return r.data; });
   }
@@ -497,7 +528,7 @@
     $('t-alertas').innerHTML = alertas.length ? alertas.map(function (a) {
       return '<tr class="alert-row ' + a.estadoCalc + '">' + celdaCliente(a) +
         '<td class="num" data-l="Aumento">+' + money(a.monto) + '</td>' + celdaVigencia(a) + celdaEstado(a) +
-        '<td class="num" data-l="Cupo base">' + money(a.cupoBase) + '</td><td>' + botonesAumento(a) + '</td></tr>';
+        '<td class="num" data-l="Cupo base">' + cupo(a.cupoBase) + '</td><td>' + botonesAumento(a) + '</td></tr>';
     }).join('') : '<tr><td colspan="6" class="empty">✅ Nada pendiente. No hay cupos por cortar en los próximos ' + DATA.diasAviso + ' días.</td></tr>';
 
     var prog = ordenar(DATA.aumentos.filter(function (a) { return a.estadoCalc === 'PROGRAMADO'; })).sort(function (x, y) { return x.inicio < y.inicio ? -1 : 1; }).slice(0, 10);
@@ -533,9 +564,9 @@
         (c.cortesPendientes ? ' <span class="badge b-VENCIDO">' + c.cortesPendientes + ' corte pendiente</span>' : '') +
         '<div class="sub">' + esc(c.documento) + (c.activo ? '' : ' · inactivo') + '</div></td>' +
         '<td data-l="Tarjeta">' + esc(tarjetaTxt(c.banco, c.tarjeta)) + '</td>' +
-        '<td class="num" data-l="Cupo base">' + money(c.cupoBase) + '</td>' +
+        '<td class="num" data-l="Cupo base">' + cupo(c.cupoBase) + '</td>' +
         '<td class="num" data-l="Aumento vigente">' + (c.aumentoVigente ? '+' + money(c.aumentoVigente) : '—') + '</td>' +
-        '<td class="num" data-l="Cupo actual"><b>' + money(c.cupoVigente) + '</b></td>' +
+        '<td class="num" data-l="Cupo actual"><b>' + (c.cupoBase == null && !c.aumentoVigente ? '—' : money(c.cupoVigente)) + '</b></td>' +
         '<td><div class="actions"><button class="small primary" onclick="abrirAumento(null,\'' + c.id + '\')">+ Aumento</button>' +
         '<button class="small" onclick="abrirCliente(\'' + c.id + '\')">Editar</button></div></td></tr>';
     }).join('') : '<tr><td colspan="6" class="empty">Aún no hay clientes. Crea el primero con “+ Nuevo cliente”.</td></tr>';
@@ -567,6 +598,100 @@
     call('guardarCliente', [c], function () { cerrar('dlg-cliente'); toast('Cliente guardado'); cargar(); }, e.submitter);
   }
 
+  // ── importar Excel ─────────────────────────────────────
+  var IMPORT_FILAS = null;
+  var COLUMNAS = {
+    nombre: ['cardholder name', 'nombre', 'cliente', 'titular', 'name'],
+    cupoBase: ['cantidad usd base', 'cupo base', 'cupo', 'monto base', 'base'],
+    inicio: ['fecha aumento', 'desde', 'fecha inicio', 'inicio'],
+    fin: ['fecha termino', 'fecha término', 'hasta', 'fecha fin', 'fin', 'termino'],
+    monto: ['cantidad usd solicitada', 'monto', 'aumento', 'monto solicitado', 'solicitado'],
+    banco: ['banco', 'bank'],
+    tarjeta: ['tarjeta', 'ultimos 4', 'últimos 4', 'ult4', 'card'],
+    documento: ['documento', 'cedula', 'cédula', 'rut', 'dni', 'id'],
+    motivo: ['motivo', 'nota', 'referencia', 'observacion', 'observación']
+  };
+  function normTxt(t) { return String(t == null ? '' : t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function serialAISO(n) { var d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000); return d.toISOString().slice(0, 10); }
+
+  function abrirImportar() {
+    IMPORT_FILAS = null;
+    $('imp-file').value = '';
+    $('imp-resultado').innerHTML = '';
+    $('imp-btn').disabled = true;
+    $('dlg-importar').showModal();
+    if (!window.XLSX) {
+      var sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      document.head.appendChild(sc);
+    }
+  }
+
+  function leerExcel(file) {
+    if (!file) return;
+    if (!window.XLSX) { setTimeout(function () { leerExcel(file); }, 300); return; }
+    var fr = new FileReader();
+    fr.onload = function () {
+      try {
+        var wb = XLSX.read(new Uint8Array(fr.result), { type: 'array' });
+        var rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+        var head = (rows.shift() || []).map(normTxt), idx = {};
+        Object.keys(COLUMNAS).forEach(function (campo) {
+          var i = head.findIndex(function (h) { return COLUMNAS[campo].indexOf(h) >= 0; });
+          if (i >= 0) idx[campo] = i;
+        });
+        if (idx.nombre == null) throw new Error('No encontré la columna de nombre ("Cardholder name" o "Nombre") en la primera fila.');
+        var filas = [];
+        rows.forEach(function (r, n) {
+          if (!r.some(function (v) { return String(v).trim() !== ''; })) return;
+          var f = { fila: n + 2 };
+          Object.keys(idx).forEach(function (campo) {
+            var v = r[idx[campo]];
+            if ((campo === 'inicio' || campo === 'fin') && typeof v === 'number') v = serialAISO(v);
+            f[campo] = typeof v === 'string' ? v.trim() : v;
+          });
+          filas.push(f);
+        });
+        if (!filas.length) throw new Error('El archivo no tiene filas con datos.');
+        IMPORT_FILAS = filas;
+        $('imp-resultado').innerHTML = '<p class="sub">Validando ' + filas.length + ' filas…</p>';
+        call('importarDatos', [filas, true], mostrarVistaPrevia);
+      } catch (e) {
+        $('imp-resultado').innerHTML = '<p style="color:var(--red)">' + esc(e.message) + '</p>';
+      }
+    };
+    fr.readAsArrayBuffer(file);
+  }
+
+  function mostrarVistaPrevia(r) {
+    var ok = r.clientesNuevos + r.clientesActualizados + r.aumentosNuevos;
+    var h = '<div class="imp-sum">' +
+      '<span class="badge b-VIGENTE">' + r.clientesNuevos + ' clientes nuevos</span>' +
+      (r.clientesActualizados ? '<span class="badge b-PROGRAMADO">' + r.clientesActualizados + ' clientes a actualizar</span>' : '') +
+      '<span class="badge b-POR_VENCER">' + r.aumentosNuevos + ' aumentos nuevos</span>' +
+      (r.omitidos ? '<span class="badge b-CORTADO">' + r.omitidos + ' aumentos ya existían</span>' : '') +
+      (r.errores.length ? '<span class="badge b-VENCIDO">' + r.errores.length + ' filas con error (se omiten)</span>' : '') +
+      '</div><div class="imp-table"><table><thead><tr><th>Fila</th><th>Nombre</th><th>Cliente</th><th>Aumento</th></tr></thead><tbody>' +
+      r.filas.map(function (f) {
+        return '<tr' + (f.error ? ' class="err"' : '') + '><td>' + f.fila + '</td><td>' + esc(f.nombre) + '</td><td>' + esc(f.error ? '' : f.cliente) +
+          '</td><td>' + esc(f.error || f.aumento || '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    $('imp-resultado').innerHTML = h;
+    $('imp-btn').disabled = !ok;
+    $('imp-btn').textContent = ok ? 'Importar' : 'Nada que importar';
+  }
+
+  function confirmarImportacion(e) {
+    e.preventDefault();
+    if (!IMPORT_FILAS) return;
+    call('importarDatos', [IMPORT_FILAS, false], function (r) {
+      cerrar('dlg-importar');
+      toast('Importado: ' + r.clientesNuevos + ' clientes nuevos, ' + r.clientesActualizados + ' actualizados, ' + r.aumentosNuevos + ' aumentos' +
+        (r.errores.length ? ' · ' + r.errores.length + ' filas con error omitidas' : ''));
+      cargar();
+    }, e.submitter);
+  }
+
   // ── aumentos ───────────────────────────────────────────
   function abrirAumento(id, idCliente) {
     var a = DATA.aumentos.filter(function (x) { return x.id === id; })[0] || {};
@@ -590,7 +715,8 @@
     var c = DATA.clientes.filter(function (x) { return x.id === $('a-cliente').value; })[0];
     var m = Number($('a-monto').value || 0), ini = $('a-inicio').value, fin = $('a-fin').value;
     var p = [];
-    if (c) p.push('Cupo base <b>' + money(c.cupoBase) + '</b> → durante el aumento <b>' + money(c.cupoBase + m) + '</b>');
+    if (c && c.cupoBase != null) p.push('Cupo base <b>' + money(c.cupoBase) + '</b> → durante el aumento <b>' + money(c.cupoBase + m) + '</b>');
+    else if (c) p.push('Este cliente no tiene cupo base registrado.');
     if (ini && fin) {
       if (fin < ini) p.push('<span style="color:var(--red)">La fecha de fin es anterior a la de inicio.</span>');
       else {
@@ -617,7 +743,7 @@
     $('x-btn').textContent = cortar ? '✓ Ya lo corté con el banco' : 'Anular';
     $('x-detalle').innerHTML = '<b>' + esc(a.cliente) + '</b> · ' + esc(tarjetaTxt(a.banco, a.tarjeta)) +
       '<br>Aumento de <b>+' + money(a.monto) + '</b> del ' + dmy(a.inicio) + ' al ' + dmy(a.fin) +
-      (cortar ? '<br>El cupo vuelve a <b>' + money(a.cupoBase) + '</b>. Dejarás de recibir alertas de este aumento.' : '<br>Se usa si el aumento no se llegó a aplicar.');
+      (cortar ? (a.cupoBase ? '<br>El cupo vuelve a <b>' + money(a.cupoBase) + '</b>.' : '') + '<br>Dejarás de recibir alertas de este aumento.' : '<br>Se usa si el aumento no se llegó a aplicar.');
     $('dlg-cerrar').showModal();
   }
   function confirmarCierre(e) {

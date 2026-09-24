@@ -148,7 +148,8 @@ function doPost(e) {
     guardarConfig: guardarConfig,
     revisarAhora: revisarAhora,
     enviarPrueba: enviarPrueba,
-    detectarChatTelegram: detectarChatTelegram
+    detectarChatTelegram: detectarChatTelegram,
+    importarDatos: importarDatos
   };
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return jsonOut_({ ok: false, error: 'Solicitud inválida.' }); }
@@ -407,7 +408,10 @@ function log_(accion, detalle) {
 
 function num_(v) {
   if (typeof v === 'number') return v;
-  const n = Number(String(v || '').replace(/[^\d.\-]/g, ''));
+  let t = String(v || '').replace(/[^\d.,\-]/g, '');
+  if (/,\d{1,2}$/.test(t) || /^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '').replace(',', '.'); // 2.000,50 · 2.000
+  else t = t.replace(/,/g, '');                                                                          // 2,000.50 · 2,000
+  const n = Number(t);
   return isNaN(n) ? 0 : n;
 }
 
@@ -486,7 +490,7 @@ function obtenerDatos(token) {
     const pendientes = aumentos.filter(function (a) { return a.idCliente === c.ID && a.estadoCalc === 'VENCIDO'; }).length;
     return {
       id: c.ID, nombre: c.NOMBRE, documento: String(c.DOCUMENTO || ''), banco: c.BANCO || '',
-      tarjeta: String(c.TARJETA_ULT4 || ''), cupoBase: num_(c.CUPO_BASE), email: c.EMAIL || '',
+      tarjeta: String(c.TARJETA_ULT4 || ''), cupoBase: c.CUPO_BASE === '' ? null : num_(c.CUPO_BASE), email: c.EMAIL || '',
       telefono: String(c.TELEFONO || ''), notas: c.NOTAS || '', activo: c.ACTIVO !== false && c.ACTIVO !== 'NO',
       aumentoVigente: extra, cupoVigente: num_(c.CUPO_BASE) + extra, cortesPendientes: pendientes
     };
@@ -509,14 +513,137 @@ function obtenerDatos(token) {
   };
 }
 
+/**
+ * Importación masiva (desde Excel). Cada fila:
+ *   { nombre, cupoBase?, banco?, tarjeta?, documento?, monto?, inicio?, fin? }
+ * - Cliente nuevo → se crea. Si ya existe (mismo nombre, sin distinguir
+ *   mayúsculas/tildes) → se reutiliza y se completan los datos que vengan.
+ * - Si la fila trae monto + inicio + fin → se crea el aumento, salvo que ya
+ *   exista uno activo idéntico (así reimportar el mismo archivo no duplica).
+ * Con soloValidar=true no escribe nada: devuelve la vista previa.
+ */
+function importarDatos(token, filas, soloValidar) {
+  exigirSesion_(token);
+  if (!Array.isArray(filas) || !filas.length) throw new Error('No hay filas para importar.');
+  if (filas.length > 2000) throw new Error('Máximo 2000 filas por importación.');
+  return conLock_(function () {
+    const clave = function (n) { return String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); };
+    const clientes = leer_(SH_CLIENTES);
+    const porNombre = {};
+    clientes.forEach(function (c) { porNombre[clave(c.NOMBRE)] = c; });
+    const aumentos = leer_(SH_AUMENTOS);
+    const firmaAum = function (idCliente, monto, ini, fin) { return [idCliente, Number(monto).toFixed(2), ini, fin].join('|'); };
+    const existentes = {};
+    aumentos.forEach(function (a) {
+      if (a.ESTADO === ESTADO_ACTIVO) existentes[firmaAum(a.ID_CLIENTE, num_(a.MONTO), aISO_(a.FECHA_INICIO), aISO_(a.FECHA_FIN))] = true;
+    });
+
+    const res = { clientesNuevos: 0, clientesActualizados: 0, aumentosNuevos: 0, omitidos: 0, errores: [], filas: [] };
+    const nuevosClientes = [], actualizaciones = [], nuevosAumentos = [];
+    const vistos = {};
+
+    filas.forEach(function (f, i) {
+      const fila = f.fila || i + 2;
+      const nombre = String(f.nombre || '').replace(/\s+/g, ' ').trim();
+      const k = clave(nombre);
+      const out = { fila: fila, nombre: nombre, cliente: '', aumento: '' };
+      try {
+        if (!nombre) throw new Error('Falta el nombre.');
+        const cupo = f.cupoBase === '' || f.cupoBase == null ? null : num_(f.cupoBase);
+        if (cupo != null && cupo < 0) throw new Error('Cupo base negativo.');
+        const ult4 = String(f.tarjeta || '').replace(/\D/g, '').slice(-4);
+
+        const tieneAum = f.monto !== '' && f.monto != null || f.inicio || f.fin;
+        let ini = '', fin = '', monto = 0;
+        if (tieneAum) {
+          monto = num_(f.monto); ini = aISO_(f.inicio); fin = aISO_(f.fin);
+          if (!(monto > 0)) throw new Error('Monto solicitado inválido.');
+          if (!ini || !fin) throw new Error('Faltan fechas del aumento (o tienen formato inválido).');
+          if (fin < ini) throw new Error('La fecha de término es anterior a la de aumento.');
+        }
+
+        let cli = porNombre[k] || vistos[k];
+        if (!cli) {
+          cli = {
+            ID: nuevoId_('C'), NOMBRE: nombre, DOCUMENTO: String(f.documento || '').trim(), BANCO: String(f.banco || '').trim(),
+            TARJETA_ULT4: ult4, CUPO_BASE: cupo == null ? '' : cupo, EMAIL: '', TELEFONO: '', NOTAS: '', ACTIVO: 'SI', CREADO: new Date()
+          };
+          vistos[k] = cli; nuevosClientes.push(cli); res.clientesNuevos++; out.cliente = 'nuevo';
+        } else {
+          const cambios = {};
+          if (cupo != null && num_(cli.CUPO_BASE) !== cupo) cambios.CUPO_BASE = cupo;
+          if (f.banco && !cli.BANCO) cambios.BANCO = String(f.banco).trim();
+          if (ult4 && !cli.TARJETA_ULT4) cambios.TARJETA_ULT4 = ult4;
+          if (f.documento && !cli.DOCUMENTO) cambios.DOCUMENTO = String(f.documento).trim();
+          if (Object.keys(cambios).length && cli._row) {
+            Object.keys(cambios).forEach(function (c) { cli[c] = cambios[c]; });
+            if (actualizaciones.indexOf(cli) < 0) { actualizaciones.push(cli); res.clientesActualizados++; }
+            out.cliente = 'actualizado';
+          } else {
+            out.cliente = 'existente';
+          }
+        }
+
+        if (tieneAum) {
+          const firma = firmaAum(cli.ID, monto, ini, fin);
+          if (existentes[firma]) { out.aumento = 'ya existía'; res.omitidos++; }
+          else {
+            existentes[firma] = true;
+            nuevosAumentos.push({
+              ID: nuevoId_('A'), ID_CLIENTE: cli.ID, CLIENTE: cli.NOMBRE, MONTO: monto,
+              FECHA_INICIO: isoAFecha_(ini), FECHA_FIN: isoAFecha_(fin), MOTIVO: String(f.motivo || 'Importado desde Excel').trim(),
+              ESTADO: ESTADO_ACTIVO, FECHA_CORTE: '', NOTA_CORTE: '', ULTIMO_AVISO: '', EVENTO_CALENDAR: '', CREADO: new Date(),
+              _cliente: cli
+            });
+            res.aumentosNuevos++; out.aumento = 'nuevo +' + money_(monto) + ' del ' + isoADMY_(ini) + ' al ' + isoADMY_(fin);
+          }
+        }
+      } catch (e) {
+        res.errores.push({ fila: fila, nombre: nombre, error: e.message });
+        out.error = e.message;
+      }
+      res.filas.push(out);
+    });
+
+    if (soloValidar) return res;
+
+    const usarCal = getConfig_().usarCalendar;
+    nuevosAumentos.forEach(function (a) { if (usarCal) a.EVENTO_CALENDAR = crearEvento_(a, a._cliente); });
+    agregarFilas_(SH_CLIENTES, nuevosClientes);
+    actualizaciones.forEach(function (c) { escribirFila_(SH_CLIENTES, c, c._row); });
+    agregarFilas_(SH_AUMENTOS, nuevosAumentos);
+    log_('IMPORTACION', res.clientesNuevos + ' clientes nuevos, ' + res.clientesActualizados + ' actualizados, ' +
+      res.aumentosNuevos + ' aumentos nuevos, ' + res.errores.length + ' filas con error');
+    delete res.filas;
+    return res;
+  });
+}
+
+/** Escribe muchas filas de una vez (mucho más rápido que appendRow en bucle). */
+function agregarFilas_(name, objs) {
+  if (!objs.length) return;
+  const sh = getSheet_(name);
+  const h = HEADERS[name];
+  const start = sh.getLastRow() + 1;
+  sh.getRange(start, 1, objs.length, h.length).setValues(objs.map(function (o) {
+    return h.map(function (k) { return o[k] === undefined ? '' : o[k]; });
+  }));
+  h.forEach(function (k, j) {
+    const r = sh.getRange(start, j + 1, objs.length, 1);
+    if (/^FECHA_|^ULTIMO_AVISO$/.test(k)) r.setNumberFormat('dd-mm-yyyy');
+    else if (k === 'CREADO') r.setNumberFormat('dd-mm-yyyy hh:mm');
+    else if (k === 'MONTO' || k === 'CUPO_BASE') r.setNumberFormat('#,##0.00');
+  });
+}
+
 function guardarCliente(token, c) {
   exigirSesion_(token);
   return conLock_(function () {
     const nombre = String(c.nombre || '').trim();
     if (!nombre) throw new Error('El nombre es obligatorio.');
     const ult4 = String(c.tarjeta || '').replace(/\D/g, '').slice(-4);
-    const cupo = num_(c.cupoBase);
-    if (cupo < 0) throw new Error('El cupo base no puede ser negativo.');
+    const cupo = c.cupoBase === '' || c.cupoBase == null ? '' : num_(c.cupoBase);
+    if (cupo !== '' && cupo < 0) throw new Error('El cupo base no puede ser negativo.');
 
     let existente = null;
     if (c.id) {
@@ -546,7 +673,7 @@ function guardarCliente(token, c) {
         if (a.ID_CLIENTE === obj.ID) sh.getRange(a._row, col).setValue(nombre);
       });
     }
-    log_(existente ? 'CLIENTE_EDITADO' : 'CLIENTE_CREADO', obj.NOMBRE + ' · cupo base ' + money_(cupo));
+    log_(existente ? 'CLIENTE_EDITADO' : 'CLIENTE_CREADO', obj.NOMBRE + (cupo === '' ? '' : ' · cupo base ' + money_(cupo)));
     return obj.ID;
   });
 }
@@ -792,7 +919,7 @@ function lineaAumento_(a) {
   const tarjeta = [a.banco, a.tarjeta ? '****' + a.tarjeta : ''].filter(String).join(' ');
   return a.cliente + (tarjeta ? ' (' + tarjeta + ')' : '') +
     ' · +' + money_(a.monto) + ' del ' + isoADMY_(a.inicio) + ' al ' + isoADMY_(a.fin) +
-    ' · cupo debe volver a ' + money_(a.cupoBase);
+    (a.cupoBase ? ' · cupo debe volver a ' + money_(a.cupoBase) : '');
 }
 
 function escHtml_(s) {
