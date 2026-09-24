@@ -152,6 +152,16 @@
     table.resp tr.con-aum.alerta { border-left-color: var(--orange); background: #fffaf3; }
     table.resp tr.con-aum.vencido { border-left-color: var(--red); background: #fff6f6; }
   }
+  /* Reportes */
+  table.reporte th, table.reporte td { white-space: nowrap; font-size: 14px; }
+  table.reporte tfoot td { font-weight: 800; border-top: 2px solid var(--text); }
+  table.reporte tr.grupo td { background: var(--gray-bg); font-weight: 700; }
+  .dias { display: inline-block; min-width: 38px; text-align: center; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+  .dias.d0 { background: var(--red-bg); color: var(--red); }
+  .dias.d3 { background: var(--orange-bg); color: var(--orange); }
+  .dias.d7 { background: var(--yellow-bg); color: var(--yellow); }
+  .dias.dx { background: var(--green-bg); color: var(--green); }
+  .stat .v { font-size: 20px; font-weight: 800; }
 </style>
 </head>
 <body>
@@ -171,6 +181,7 @@
   <button data-tab="panel" class="active">Panel</button>
   <button data-tab="aumentos">Aumentos</button>
   <button data-tab="clientes">Clientes</button>
+  <button data-tab="reportes">Reportes</button>
   <button data-tab="config">Configuración</button>
 </nav>
 
@@ -242,6 +253,48 @@
         <thead><tr><th>Cliente</th><th>Tarjeta</th><th class="num">Cupo base</th><th class="num">Aumento vigente</th><th class="num">Cupo actual</th><th></th></tr></thead>
         <tbody id="t-clientes"></tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- REPORTES -->
+  <section class="tab" id="tab-reportes">
+    <div class="cards" id="r-kpis"></div>
+    <div class="panel">
+      <h2>Reportes <span class="actions">
+        <button class="small" onclick="exportarExcel(this)">⬇ Excel</button>
+        <button class="small primary" onclick="exportarPDF(this)">⬇ PDF</button>
+      </span></h2>
+      <div class="toolbar">
+        <select id="r-tipo" onchange="renderReporte()">
+          <option value="proximos">Próximos a caducar</option>
+          <option value="vencidos">Vencidos sin cortar</option>
+          <option value="abiertos">Todos los aumentos abiertos</option>
+          <option value="calendario">Calendario de cortes por semana</option>
+          <option value="periodo">Aumentos por período (histórico)</option>
+          <option value="clientes">Cupos por cliente</option>
+          <option value="bancos">Resumen por banco</option>
+        </select>
+        <select id="r-dias" onchange="renderReporte()">
+          <option value="7">Próximos 7 días</option>
+          <option value="15">Próximos 15 días</option>
+          <option value="30" selected>Próximos 30 días</option>
+          <option value="60">Próximos 60 días</option>
+          <option value="9999">Todos</option>
+        </select>
+        <span id="r-rango" style="display:none;gap:8px;flex:1;min-width:280px">
+          <input type="date" id="r-desde" onchange="renderReporte()" title="Desde">
+          <input type="date" id="r-hasta" onchange="renderReporte()" title="Hasta">
+        </span>
+        <input id="r-banco" list="bancos" placeholder="Filtrar por banco (opcional)" oninput="renderReporte()">
+      </div>
+      <p class="hint" id="r-desc" style="margin-top:-4px"></p>
+      <div style="overflow-x:auto">
+        <table id="r-tabla" class="reporte">
+          <thead id="r-head"></thead>
+          <tbody id="r-body"></tbody>
+          <tfoot id="r-foot"></tfoot>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -622,6 +675,7 @@
       b.classList.add('active');
       $('tab-' + b.dataset.tab).classList.add('active');
       if (b.dataset.tab === 'config' && SESION && SESION.rol === 'ADMIN') { cargarConfig(); cargarUsuarios(); }
+      if (b.dataset.tab === 'reportes') renderReporte();
     });
   });
 
@@ -639,6 +693,7 @@
       var bancos = {}; d.clientes.forEach(function (c) { if (c.banco) bancos[c.banco] = 1; });
       $('bancos').innerHTML = Object.keys(bancos).map(function (b) { return '<option value="' + esc(b) + '">'; }).join('');
       renderPanel(); renderAumentos(); renderClientes();
+      if ($('tab-reportes').classList.contains('active')) renderReporte();
     });
   }
 
@@ -869,6 +924,243 @@
         (r.errores.length ? ' · ' + r.errores.length + ' filas con error omitidas' : ''));
       cargar();
     }, e.submitter);
+  }
+
+  // ── reportes ───────────────────────────────────────────
+  var ABIERTOS = ['VENCIDO', 'VENCE_HOY', 'POR_VENCER', 'VIGENTE', 'PROGRAMADO'];
+  function sumarDias(iso, n) { var p = iso.split('-').map(Number); var d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)); return d.toISOString().slice(0, 10); }
+  function lunes(iso) { var p = iso.split('-').map(Number); var d = new Date(Date.UTC(p[0], p[1] - 1, p[2])); var w = (d.getUTCDay() + 6) % 7; return sumarDias(iso, -w); }
+  function diasChip(d) {
+    if (d == null) return '';
+    var c = d <= 0 ? 'd0' : d <= 3 ? 'd3' : d <= 7 ? 'd7' : 'dx';
+    return '<span class="dias ' + c + '">' + (d < 0 ? d : d === 0 ? 'HOY' : d) + '</span>';
+  }
+  function bancoOk(banco) { var f = $('r-banco').value.trim().toLowerCase(); return !f || String(banco || '').toLowerCase().indexOf(f) >= 0; }
+
+  // Cada reporte: { titulo, desc, cols: [{h, k, t: 'money'|'date'|'num'|'dias'|'txt', total}], filas, grupo? }
+  function datosReporte() {
+    var tipo = $('r-tipo').value, hoy = DATA.hoy, horizonte = Number($('r-dias').value);
+    var aum = DATA.aumentos.filter(function (a) { return bancoOk(a.banco); });
+    var porFin = function (x, y) { return x.fin < y.fin ? -1 : x.fin > y.fin ? 1 : x.cliente.localeCompare(y.cliente); };
+    var conCalc = function (a) {
+      return Object.assign({}, a, { tarjetaTxt: tarjetaTxt(a.banco, a.tarjeta), cupoCon: (a.cupoBase || 0) + a.monto, estadoTxt: ESTADOS[a.estadoCalc] });
+    };
+    var colsAum = [
+      { h: 'Vence', k: 'fin', t: 'date' }, { h: 'Días', k: 'diasRestantes', t: 'dias' }, { h: 'Cliente', k: 'cliente' },
+      { h: 'Banco / tarjeta', k: 'tarjetaTxt' }, { h: 'Aumento', k: 'monto', t: 'money', total: true },
+      { h: 'Cupo base', k: 'cupoBase', t: 'money' }, { h: 'Cupo con aumento', k: 'cupoCon', t: 'money' },
+      { h: 'Desde', k: 'inicio', t: 'date' }, { h: 'Estado', k: 'estadoTxt' }, { h: 'Motivo', k: 'motivo' }
+    ];
+    if (tipo === 'proximos') {
+      var limite = sumarDias(hoy, horizonte);
+      return { titulo: 'Aumentos próximos a caducar', desc: 'Aumentos no cortados que terminan entre hoy y ' + (horizonte >= 9999 ? 'cualquier fecha' : dmy(limite)) + ', del más próximo al más lejano.',
+        cols: colsAum, filas: aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0 && a.fin >= hoy && a.fin <= limite; }).sort(porFin).map(conCalc) };
+    }
+    if (tipo === 'vencidos') {
+      return { titulo: 'Aumentos vencidos sin cortar', desc: 'Ya pasó su fecha de fin y no están marcados como cortados: hay que hacer el trámite con el banco.',
+        cols: [{ h: 'Venció', k: 'fin', t: 'date' }, { h: 'Días de atraso', k: 'atraso', t: 'num' }].concat(colsAum.slice(2)),
+        filas: aum.filter(function (a) { return a.estadoCalc === 'VENCIDO'; }).sort(porFin).map(function (a) { var r = conCalc(a); r.atraso = -a.diasRestantes; return r; }) };
+    }
+    if (tipo === 'abiertos') {
+      return { titulo: 'Todos los aumentos abiertos', desc: 'Programados, vigentes, por vencer y vencidos sin cortar.',
+        cols: colsAum, filas: aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0; }).sort(porFin).map(conCalc) };
+    }
+    if (tipo === 'calendario') {
+      var filas = aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0; }).sort(porFin).map(function (a) {
+        var r = conCalc(a); var l = a.fin < hoy ? 'VENCIDOS' : lunes(a.fin); r.semana = l === 'VENCIDOS' ? 'Vencidos sin cortar' : 'Semana del ' + dmy(l) + ' al ' + dmy(sumarDias(l, 6)); return r;
+      });
+      return { titulo: 'Calendario de cortes por semana', desc: 'Cortes pendientes agrupados por la semana en que vencen.', grupo: 'semana', cols: colsAum, filas: filas };
+    }
+    if (tipo === 'periodo') {
+      var desde = $('r-desde').value || sumarDias(hoy, -30), hasta = $('r-hasta').value || sumarDias(hoy, 30);
+      return { titulo: 'Aumentos del ' + dmy(desde) + ' al ' + dmy(hasta), desc: 'Todos los aumentos (incluidos cortados y anulados) cuya vigencia toca el período.',
+        cols: [{ h: 'Desde', k: 'inicio', t: 'date' }, { h: 'Hasta', k: 'fin', t: 'date' }, { h: 'Cliente', k: 'cliente' }, { h: 'Banco / tarjeta', k: 'tarjetaTxt' },
+          { h: 'Aumento', k: 'monto', t: 'money', total: true }, { h: 'Estado', k: 'estadoTxt' }, { h: 'Fecha cierre', k: 'fechaCorte', t: 'date' },
+          { h: 'Nota de cierre', k: 'notaCorte' }, { h: 'Motivo', k: 'motivo' }],
+        filas: aum.filter(function (a) { return a.inicio <= hasta && a.fin >= desde; }).sort(function (x, y) { return x.inicio < y.inicio ? -1 : x.inicio > y.inicio ? 1 : 0; }).map(conCalc) };
+    }
+    if (tipo === 'clientes') {
+      var filasC = DATA.clientes.filter(function (c) { return bancoOk(c.banco); }).map(function (c) {
+        var ab = aumentosAbiertos(c.id);
+        return { cliente: c.nombre, documento: c.documento, tarjetaTxt: tarjetaTxt(c.banco, c.tarjeta), cupoBase: c.cupoBase,
+          monto: ab ? ab.total : '', cupoCon: c.cupoBase == null && !ab ? '' : (c.cupoBase || 0) + (ab ? ab.total : 0), fin: ab ? ab.fin : '', estadoTxt: ab ? ESTADOS[ab.estado] : 'Sin aumento', activo: c.activo ? 'Sí' : 'No', _p: ab ? PRIORIDAD[ab.estado] : 9 };
+      }).sort(function (x, y) { return (x._p - y._p) || x.cliente.localeCompare(y.cliente); });
+      return { titulo: 'Cupos por cliente', desc: 'Cupo base, aumento abierto y cupo actual de cada cliente (primero los que tienen aumento).',
+        cols: [{ h: 'Cliente', k: 'cliente' }, { h: 'Documento', k: 'documento' }, { h: 'Banco / tarjeta', k: 'tarjetaTxt' }, { h: 'Cupo base', k: 'cupoBase', t: 'money', total: true },
+          { h: 'Aumento abierto', k: 'monto', t: 'money', total: true }, { h: 'Cupo actual', k: 'cupoCon', t: 'money', total: true }, { h: 'Próximo corte', k: 'fin', t: 'date' },
+          { h: 'Estado', k: 'estadoTxt' }, { h: 'Activo', k: 'activo' }], filas: filasC };
+    }
+    // bancos
+    var g = {};
+    aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0; }).forEach(function (a) {
+      var b = a.banco || '(sin banco)';
+      g[b] = g[b] || { banco: b, n: 0, clientes: {}, monto: 0, vencidos: 0, prox7: 0, fin: '' };
+      g[b].n++; g[b].clientes[a.idCliente] = 1; g[b].monto += a.monto;
+      if (a.estadoCalc === 'VENCIDO') g[b].vencidos++;
+      if (a.fin >= hoy && a.fin <= sumarDias(hoy, 7)) g[b].prox7++;
+      if (a.fin >= hoy && (!g[b].fin || a.fin < g[b].fin)) g[b].fin = a.fin;
+    });
+    return { titulo: 'Resumen por banco', desc: 'Aumentos abiertos agrupados por banco.',
+      cols: [{ h: 'Banco', k: 'banco' }, { h: 'Aumentos', k: 'n', t: 'num', total: true }, { h: 'Clientes', k: 'nClientes', t: 'num', total: true },
+        { h: 'Monto aumentado', k: 'monto', t: 'money', total: true }, { h: 'Vencidos sin cortar', k: 'vencidos', t: 'num', total: true },
+        { h: 'Vencen en 7 días', k: 'prox7', t: 'num', total: true }, { h: 'Próximo corte', k: 'fin', t: 'date' }],
+      filas: Object.keys(g).map(function (k) { var x = g[k]; x.nClientes = Object.keys(x.clientes).length; return x; }).sort(function (x, y) { return y.monto - x.monto; }) };
+  }
+
+  function valorTexto(v, t) {
+    if (v == null || v === '') return '';
+    if (t === 'money') return money(v);
+    if (t === 'date') return dmy(v);
+    return String(v);
+  }
+  function totales(r) {
+    var tot = {}, hay = false;
+    r.cols.forEach(function (c) { if (c.total) { hay = true; tot[c.k] = r.filas.reduce(function (s, f) { return s + (Number(f[c.k]) || 0); }, 0); } });
+    return hay ? tot : null;
+  }
+
+  function renderKpis() {
+    var hoy = DATA.hoy, ab = DATA.aumentos.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0 && a.estadoCalc !== 'PROGRAMADO'; });
+    var monto = ab.reduce(function (s, a) { return s + a.monto; }, 0);
+    var clientes = {}; ab.forEach(function (a) { clientes[a.idCliente] = 1; });
+    var prox7 = ab.filter(function (a) { return a.fin >= hoy && a.fin <= sumarDias(hoy, 7); });
+    var sig = ab.filter(function (a) { return a.fin >= hoy; }).sort(function (x, y) { return x.fin < y.fin ? -1 : 1; })[0];
+    $('r-kpis').innerHTML =
+      '<div class="stat blue"><div class="v">' + money(monto) + '</div><div class="l">Monto aumentado hoy</div></div>' +
+      '<div class="stat green"><div class="n">' + Object.keys(clientes).length + '</div><div class="l">Clientes con aumento</div></div>' +
+      '<div class="stat yellow"><div class="n">' + prox7.length + '</div><div class="l">Vencen en 7 días (' + money(prox7.reduce(function (s, a) { return s + a.monto; }, 0)) + ')</div></div>' +
+      '<div class="stat red"><div class="n">' + DATA.resumen.vencidos + '</div><div class="l">Vencidos sin cortar</div></div>' +
+      '<div class="stat orange"><div class="v">' + (sig ? dmy(sig.fin) : '—') + '</div><div class="l">' + (sig ? 'Próximo corte: ' + esc(sig.cliente) : 'Sin cortes pendientes') + '</div></div>';
+  }
+
+  function renderReporte() {
+    if (!DATA.hoy) return;
+    var tipo = $('r-tipo').value;
+    $('r-dias').style.display = tipo === 'proximos' ? '' : 'none';
+    $('r-rango').style.display = tipo === 'periodo' ? 'flex' : 'none';
+    if (tipo === 'periodo' && !$('r-desde').value) { $('r-desde').value = sumarDias(DATA.hoy, -30); $('r-hasta').value = sumarDias(DATA.hoy, 30); }
+    renderKpis();
+    var r = datosReporte();
+    $('r-desc').textContent = r.desc + ' ' + r.filas.length + ' fila(s).';
+    $('r-head').innerHTML = '<tr>' + r.cols.map(function (c) { return '<th' + (c.t && c.t !== 'txt' && c.t !== 'date' ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr>';
+    var celda = function (f, c) {
+      var v = f[c.k];
+      if (c.t === 'dias') return '<td class="num">' + diasChip(v) + '</td>';
+      return '<td' + (c.t === 'money' || c.t === 'num' ? ' class="num"' : '') + '>' + esc(valorTexto(v, c.t)) + '</td>';
+    };
+    var html = '', grupo = null;
+    r.filas.forEach(function (f) {
+      if (r.grupo && f[r.grupo] !== grupo) { grupo = f[r.grupo]; html += '<tr class="grupo"><td colspan="' + r.cols.length + '">' + esc(grupo) + '</td></tr>'; }
+      html += '<tr>' + r.cols.map(function (c) { return celda(f, c); }).join('') + '</tr>';
+    });
+    $('r-body').innerHTML = html || '<tr><td colspan="' + r.cols.length + '" class="empty">No hay datos para este reporte.</td></tr>';
+    var tot = totales(r);
+    $('r-foot').innerHTML = tot && r.filas.length ? '<tr>' + r.cols.map(function (c, i) {
+      return '<td' + (c.total ? ' class="num"' : '') + '>' + (i === 0 ? 'TOTAL' : c.total ? esc(valorTexto(tot[c.k], c.t)) : '') + '</td>';
+    }).join('') + '</tr>' : '';
+  }
+
+  function cargarScript(url) {
+    return new Promise(function (ok, mal) {
+      var sc = document.createElement('script'); sc.src = url; sc.onload = ok;
+      sc.onerror = function () { mal(new Error('No se pudo cargar la librería de exportación. Revisa tu conexión.')); };
+      document.head.appendChild(sc);
+    });
+  }
+  function nombreArchivo(r, ext) {
+    return ('Reporte ' + r.titulo + ' ' + dmy(DATA.hoy)).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z0-9 _.-]/g, '').trim().replace(/\s+/g, '_') + '.' + ext;
+  }
+
+  function exportarExcel(btn) {
+    var r = datosReporte();
+    if (!r.filas.length) { toast('El reporte está vacío.', true); return; }
+    cargando(true, 'Generando Excel…', btn);
+    (window.XLSX ? Promise.resolve() : cargarScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js')).then(function () {
+      var aoa = [[r.titulo], ['Generado el ' + dmy(DATA.hoy) + (SESION ? ' por ' + (SESION.nombre || SESION.usuario) : '')], []];
+      var cols = r.cols.concat(r.grupo ? [{ h: 'Grupo', k: r.grupo }] : []);
+      aoa.push(cols.map(function (c) { return c.h; }));
+      r.filas.forEach(function (f) {
+        aoa.push(cols.map(function (c) {
+          var v = f[c.k];
+          if (v == null || v === '') return '';
+          if (c.t === 'money' || c.t === 'num' || c.t === 'dias') return Number(v);
+          if (c.t === 'date') { var p = v.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12)); }
+          return v;
+        }));
+      });
+      var tot = totales(r);
+      if (tot) aoa.push(cols.map(function (c, i) { return i === 0 ? 'TOTAL' : c.total ? tot[c.k] : ''; }));
+      var ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+      var inicio = 4, fin = aoa.length;
+      cols.forEach(function (c, j) {
+        for (var i = inicio; i < fin; i++) {
+          var ref = XLSX.utils.encode_cell({ r: i, c: j }), cel = ws[ref];
+          if (!cel) continue;
+          if (c.t === 'money') cel.z = '#,##0.00';
+          if (c.t === 'date' && cel.t === 'd') cel.z = 'dd-mm-yyyy';
+        }
+      });
+      ws['!cols'] = cols.map(function (c) {
+        var w = Math.max(c.h.length, 10);
+        r.filas.forEach(function (f) { w = Math.max(w, valorTexto(f[c.k], c.t).length); });
+        return { wch: Math.min(w + 2, 45) };
+      });
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + r.filas.length, c: cols.length - 1 } }) };
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Reporte');
+      XLSX.writeFile(wb, nombreArchivo(r, 'xlsx'));
+      cargando(false, '', btn);
+      toast('Excel descargado');
+    }).catch(function (e) { cargando(false, '', btn); toast(e.message, true); });
+  }
+
+  function exportarPDF(btn) {
+    var r = datosReporte();
+    if (!r.filas.length) { toast('El reporte está vacío.', true); return; }
+    cargando(true, 'Generando PDF…', btn);
+    var libs = window.jspdf ? Promise.resolve() : cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      .then(function () { return cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'); });
+    libs.then(function () {
+      var doc = new window.jspdf.jsPDF({ orientation: r.cols.length > 6 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
+      var W = doc.internal.pageSize.getWidth();
+      doc.setFontSize(15); doc.setFont(undefined, 'bold'); doc.text('Control de Cupos · ' + r.titulo, 40, 42);
+      doc.setFontSize(9); doc.setFont(undefined, 'normal'); doc.setTextColor(110);
+      doc.text('Generado el ' + dmy(DATA.hoy) + (SESION ? ' por ' + (SESION.nombre || SESION.usuario) : '') + ' · ' + r.filas.length + ' fila(s)', 40, 58);
+      doc.text(doc.splitTextToSize(r.desc, W - 80), 40, 71);
+      doc.setTextColor(0);
+      var body = [], grupo = null;
+      r.filas.forEach(function (f) {
+        if (r.grupo && f[r.grupo] !== grupo) {
+          grupo = f[r.grupo];
+          body.push([{ content: grupo, colSpan: r.cols.length, styles: { fillColor: [229, 231, 235], fontStyle: 'bold' } }]);
+        }
+        body.push(r.cols.map(function (c) {
+          var v = f[c.k];
+          if (c.t === 'dias') {
+            var fill = v <= 0 ? [254, 226, 226] : v <= 3 ? [255, 237, 213] : v <= 7 ? [254, 249, 195] : [220, 252, 231];
+            return { content: v === 0 ? 'HOY' : String(v), styles: { fillColor: fill, fontStyle: 'bold', halign: 'center' } };
+          }
+          return valorTexto(v, c.t);
+        }));
+      });
+      var tot = totales(r);
+      doc.autoTable({
+        startY: 84, head: [r.cols.map(function (c) { return c.h; })], body: body,
+        foot: tot ? [r.cols.map(function (c, i) { return i === 0 ? 'TOTAL' : c.total ? valorTexto(tot[c.k], c.t) : ''; })] : undefined,
+        styles: { fontSize: 8, cellPadding: 4 }, headStyles: { fillColor: [31, 41, 55] }, footStyles: { fillColor: [243, 244, 246], textColor: 20, fontStyle: 'bold' },
+        columnStyles: r.cols.reduce(function (o, c, i) { if (c.t === 'money' || c.t === 'num') o[i] = { halign: 'right' }; return o; }, {}),
+        showFoot: 'lastPage',
+        didDrawPage: function () {
+          doc.setFontSize(8); doc.setTextColor(150);
+          doc.text('Página ' + doc.internal.getNumberOfPages(), W - 80, doc.internal.pageSize.getHeight() - 20);
+          doc.setTextColor(0);
+        }
+      });
+      doc.save(nombreArchivo(r, 'pdf'));
+      cargando(false, '', btn);
+      toast('PDF descargado');
+    }).catch(function (e) { cargando(false, '', btn); toast(e.message, true); });
   }
 
   // ── aumentos ───────────────────────────────────────────
