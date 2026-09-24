@@ -223,69 +223,39 @@
           </div>
         </div>
 
+        <p class="hint" style="margin:4px 0 12px">Todo llega por <b>correo</b>, sin claves ni APIs: tu correo corporativo recibe las alertas y las invitaciones, y así aparecen en Outlook, en el calendario de Teams y, si quieres, en un canal de Teams.</p>
         <div class="canales">
           <!-- CORREO -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">📧</span><div><b>Correo</b><div class="sub">Gmail, Outlook o cualquier correo</div></div><span class="estado" id="st-email"></span></div>
-            <div class="field"><label>Correo(s) para recibir alertas</label><input id="cfg-email" placeholder="tu@correo.com, otro@empresa.com"><div class="hint">Separa varios con coma. <span id="cfg-cuota"></span></div></div>
+            <div class="canal-h"><span class="canal-ico">📧</span><div><b>Correo corporativo</b><div class="sub">Resumen diario en Outlook</div></div><span class="estado" id="st-email"></span></div>
+            <div class="field"><label>Correo(s)</label><input id="cfg-email" placeholder="nombre@empresa.com"><div class="hint">Separa varios con coma. <span id="cfg-cuota"></span></div></div>
             <button type="button" class="small" onclick="probar('email')">Probar correo</button>
-          </div>
-
-          <!-- WHATSAPP -->
-          <div class="canal">
-            <div class="canal-h"><span class="canal-ico">💬</span><div><b>WhatsApp</b><div class="sub">Mensaje a tu propio WhatsApp (CallMeBot, gratis)</div></div><span class="estado" id="st-wsp"></span></div>
-            <details><summary>Cómo activarlo (1 minuto)</summary>
-              <ol class="pasos">
-                <li>Agrega a tus contactos el número <b>+34 644 51 95 23</b> (CallMeBot).</li>
-                <li>Envíale por WhatsApp exactamente: <code>I allow callmebot to send me messages</code></li>
-                <li>Te responde con tu <b>API key</b>. Pégala abajo junto a tu número y guarda.</li>
-              </ol>
-            </details>
-            <div class="grid2">
-              <div class="field"><label>Tu número (con código de país)</label><input id="cfg-wsp-tel" placeholder="+56912345678" inputmode="tel"></div>
-              <div class="field"><label>API key</label><input id="cfg-wsp-key" autocomplete="off"></div>
-            </div>
-            <div class="toolbar"><button type="button" class="small" onclick="probar('whatsapp')">Probar WhatsApp</button><button type="button" class="danger small" onclick="quitarCanal('Wsp')">Quitar</button></div>
-          </div>
-
-          <!-- TEAMS -->
-          <div class="canal">
-            <div class="canal-h"><span class="canal-ico">🟪</span><div><b>Microsoft Teams</b><div class="sub">Tarjeta en un canal o chat de Teams</div></div><span class="estado" id="st-teams"></span></div>
-            <details><summary>Cómo activarlo (2 minutos)</summary>
-              <ol class="pasos">
-                <li>En Teams, abre el canal o chat donde quieres las alertas → <b>•••</b> → <b>Workflows</b>.</li>
-                <li>Elige la plantilla <b>“Send webhook alerts to a channel”</b> (o <b>“…to a chat”</b>) y sigue los pasos.</li>
-                <li>Al terminar te muestra una <b>URL</b>: cópiala, pégala abajo y guarda.</li>
-              </ol>
-            </details>
-            <div class="field"><label>URL del webhook</label><input id="cfg-teams" autocomplete="off" placeholder="https://…"></div>
-            <div class="toolbar"><button type="button" class="small" onclick="probar('teams')">Probar Teams</button><button type="button" class="danger small" onclick="quitarCanal('Teams')">Quitar</button></div>
           </div>
 
           <!-- CALENDARIO -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">📅</span><div><b>Calendario</b><div class="sub">Evento el día del corte, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
-            <div class="field check"><input type="checkbox" id="cfg-ics"><label for="cfg-ics" style="margin:0"><b>Outlook / Teams</b> (o cualquier calendario): enviarme una invitación <code>.ics</code> por correo al crear cada aumento</label></div>
-            <div class="hint" style="margin:-6px 0 10px 26px">Abres el adjunto y queda en tu calendario, con aviso a las 09:00 del día anterior y del mismo día.</div>
-            <div class="field check"><input type="checkbox" id="cfg-calendar"><label for="cfg-calendar" style="margin:0"><b>Google Calendar</b>: crear el evento directamente en el calendario de la cuenta de Google del proyecto</label></div>
+            <div class="canal-h"><span class="canal-ico">📅</span><div><b>Calendario Outlook / Teams</b><div class="sub">Evento el día del corte, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
+            <div class="field check"><input type="checkbox" id="cfg-ics"><label for="cfg-ics" style="margin:0">Enviar una <b>invitación de calendario</b> al correo corporativo al crear cada aumento</label></div>
+            <ul class="pasos" style="margin:-4px 0 12px">
+              <li>Queda en tu calendario de Outlook, el mismo que ves en Teams.</li>
+              <li>Avisos a las 09:00 del día anterior y del mismo día.</li>
+              <li>Al marcarlo <b>cortado</b> o <b>anulado</b>, llega la cancelación y el evento se quita solo.</li>
+            </ul>
             <button type="button" class="small" onclick="probar('ics')">Enviarme invitación de prueba</button>
           </div>
 
-          <!-- TELEGRAM -->
+          <!-- TEAMS -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">✈️</span><div><b>Telegram</b><div class="sub">Mensaje de un bot propio</div></div><span class="estado" id="st-tg"></span></div>
-            <details><summary>Cómo activarlo</summary>
+            <div class="canal-h"><span class="canal-ico">🟪</span><div><b>Canal de Teams</b> <span class="sub">(opcional)</span><div class="sub">El resumen diario publicado en un canal</div></div><span class="estado" id="st-teams"></span></div>
+            <details><summary>Cómo obtener el correo del canal</summary>
               <ol class="pasos">
-                <li>En Telegram, habla con <b>@BotFather</b>, envía <code>/newbot</code> y copia el token.</li>
-                <li>Pégalo abajo y guarda. Luego abre tu bot y envíale cualquier mensaje.</li>
-                <li>Pulsa <b>Detectar chat</b>.</li>
+                <li>En Teams, abre el canal → <b>•••</b> → <b>Obtener dirección de correo electrónico</b>.</li>
+                <li>En <b>Configuración avanzada</b>, permite que <b>cualquiera</b> pueda enviar correos (las alertas salen desde la cuenta de Google del proyecto).</li>
+                <li>Copia la dirección (termina en <code>teams.ms</code>) y pégala aquí.</li>
               </ol>
             </details>
-            <div class="grid2">
-              <div class="field"><label>Token del bot</label><input id="cfg-tg-token" autocomplete="off"></div>
-              <div class="field"><label>Chat ID</label><input id="cfg-tg-chat" placeholder="Se detecta automáticamente"></div>
-            </div>
-            <div class="toolbar"><button type="button" class="small" onclick="detectarChat()">Detectar chat</button><button type="button" class="small" onclick="probar('telegram')">Probar Telegram</button><button type="button" class="danger small" onclick="quitarCanal('Telegram')">Quitar</button></div>
+            <div class="field"><label>Correo del canal</label><input id="cfg-teams-email" placeholder="xxxx.empresa.com@amer.teams.ms"></div>
+            <button type="button" class="small" onclick="probar('teams')">Probar Teams</button>
           </div>
         </div>
 
@@ -896,27 +866,18 @@
     $('cfg-email').value = c.email;
     $('cfg-dias').value = c.diasAviso;
     $('cfg-hora').value = c.hora;
-    $('cfg-calendar').checked = c.usarCalendar;
     $('cfg-ics').checked = c.icsInvitacion;
+    $('cfg-teams-email').value = c.teamsEmail || '';
     $('cfg-tz').textContent = 'Zona horaria: ' + c.zonaHoraria;
-    if (c.planilla) { $('link-planilla').textContent = c.planilla.nombre + ' ↗'; $('link-planilla').href = c.planilla.url; }
     $('cfg-cuota').textContent = c.cuotaCorreo != null ? 'Correos disponibles hoy: ' + c.cuotaCorreo + '.' : '';
-    $('cfg-wsp-tel').value = c.wspTelefono || '';
-    $('cfg-wsp-key').value = ''; $('cfg-wsp-key').placeholder = c.wspConfigurado ? '•••••• guardada (vacío = sin cambios)' : 'La que te envía CallMeBot';
-    $('cfg-teams').value = ''; $('cfg-teams').placeholder = c.teamsConfigurado ? '•••••• guardada (vacío = sin cambios)' : 'https://…';
-    $('cfg-tg-token').value = ''; $('cfg-tg-token').placeholder = c.telegramConfigurado ? '•••••• guardado (vacío = sin cambios)' : 'Token de @BotFather';
-    $('cfg-tg-chat').value = c.telegramChatId || '';
-    var tg = c.telegramConfigurado && c.telegramChatId;
-    estado('st-email', !!c.email); estado('st-wsp', c.wspConfigurado); estado('st-teams', c.teamsConfigurado);
-    estado('st-cal', c.icsInvitacion || c.usarCalendar, c.icsInvitacion && c.usarCalendar ? 'Outlook + Google' : c.icsInvitacion ? 'Outlook/Teams' : c.usarCalendar ? 'Google' : 'Inactivo');
-    estado('st-tg', tg, tg ? 'Activo' : c.telegramConfigurado ? 'Falta chat' : 'Inactivo');
+    if (c.planilla) { $('link-planilla').textContent = c.planilla.nombre + ' ↗'; $('link-planilla').href = c.planilla.url; }
+    estado('st-email', !!c.email); estado('st-cal', c.icsInvitacion && !!c.email); estado('st-teams', !!c.teamsEmail);
     var chip = function (on, txt, bad) { return '<span class="chip ' + (on ? 'on' : bad ? 'off-bad' : '') + '">' + txt + '</span>'; };
     $('cfg-chips').innerHTML =
       chip(c.triggerActivo, c.triggerActivo ? '⏰ Revisión diaria activa' : '⏰ Revisión diaria NO instalada', true) +
-      chip(!!c.email, '📧 Correo') + chip(c.wspConfigurado, '💬 WhatsApp') + chip(c.teamsConfigurado, '🟪 Teams') +
-      chip(c.icsInvitacion || c.usarCalendar, '📅 Calendario') + chip(tg, '✈️ Telegram');
+      chip(!!c.email, '📧 Correo', true) + chip(c.icsInvitacion && !!c.email, '📅 Calendario') + chip(!!c.teamsEmail, '🟪 Teams');
     $('cfg-aviso').innerHTML = (!c.triggerActivo || !c.email)
-      ? '<div class="aviso-setup">⚠️ Falta la configuración inicial: en el editor de Apps Script ejecuta <b>setup</b> una vez (crea la planilla, el correo de alertas y la revisión diaria). Luego pulsa <b>Guardar configuración</b>.</div>' : '';
+      ? '<div class="aviso-setup">⚠️ Falta la configuración inicial: en el editor de Apps Script ejecuta <b>crearBaseDeDatos</b> una vez. Luego pulsa <b>Guardar configuración</b>.</div>' : '';
   }
   function cargarConfig() { call('obtenerConfig', [], pintarConfig); }
 
@@ -963,24 +924,12 @@
   function leerConfig() {
     return {
       email: $('cfg-email').value, diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
-      usarCalendar: $('cfg-calendar').checked, icsInvitacion: $('cfg-ics').checked,
-      wspTelefono: $('cfg-wsp-tel').value, wspApiKey: $('cfg-wsp-key').value,
-      teamsWebhook: $('cfg-teams').value,
-      telegramToken: $('cfg-tg-token').value, telegramChatId: $('cfg-tg-chat').value
+      icsInvitacion: $('cfg-ics').checked, teamsEmail: $('cfg-teams-email').value
     };
   }
   function guardarConfig(e) {
     e.preventDefault();
     call('guardarConfig', [leerConfig()], function (c) { pintarConfig(c); toast('Configuración guardada'); cargar(); }, e.submitter);
-  }
-  function quitarCanal(canal) {
-    var nombres = { Wsp: 'WhatsApp', Teams: 'Teams', Telegram: 'Telegram' };
-    if (!confirm('¿Quitar la configuración de ' + nombres[canal] + '?')) return;
-    var cfg = leerConfig(); cfg['borrar' + canal] = true;
-    call('guardarConfig', [cfg], function (c) { pintarConfig(c); toast(nombres[canal] + ' quitado'); });
-  }
-  function detectarChat() {
-    call('detectarChatTelegram', [], function (r) { $('cfg-tg-chat').value = r.chatId; toast('Chat detectado: ' + (r.nombre || r.chatId)); cargarConfig(); });
   }
   function probar(canal) {
     // Guarda primero lo que haya en pantalla para probar con esos datos

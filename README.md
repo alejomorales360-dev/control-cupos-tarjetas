@@ -87,22 +87,19 @@ clasp open    # ejecuta setup() desde el editor y luego implementa como Web App 
 
 Antes de guardar muestra una vista previa (nuevos, actualizados, errores por fila). Si una fila trae monto + fechas se crea también el aumento. Los clientes se identifican por nombre, así que **reimportar el mismo archivo no duplica** clientes ni aumentos: sirve para ir completando la planilla y volver a subirla. El archivo se lee en el navegador; solo se envían las filas a la API.
 
-## Configurar las alertas
+## Configurar las alertas (solo correo, sin APIs)
 
-En la app → **Configuración**. Cada canal tiene su botón **Probar** (guarda lo que haya en pantalla y envía un mensaje de prueba solo por ese canal).
+En la app → **Configuración**. Todo sale por correo desde la cuenta de Google del proyecto; con un correo corporativo de Microsoft 365, eso llega a Outlook, al calendario (que también ve Teams) y, opcionalmente, a un canal de Teams.
 
-| Canal | Qué recibes | Cómo se activa |
+| Destino | Qué recibes | Cómo se activa |
 |---|---|---|
-| 📧 **Correo** | Resumen diario con tabla por estado | Escribe uno o varios correos (Gmail, Outlook, etc.). |
-| 💬 **WhatsApp** | Mensaje a tu propio WhatsApp | Gratis vía [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/): agrega **+34 644 51 95 23**, envíale `I allow callmebot to send me messages`, pega la API key que te responde + tu número con código de país. |
-| 🟪 **Microsoft Teams** | Tarjeta en un canal o chat | Teams → canal/chat → **•••** → **Workflows** → plantilla *“Send webhook alerts to a channel”* (o *“…to a chat”*) → pega la URL que entrega. |
-| 📅 **Outlook / Teams calendario** | Invitación `.ics` por correo al crear cada aumento (evento de día completo en la fecha de corte, recordatorios 09:00 del día anterior y del mismo día) | Marca la casilla. Al importar desde Excel se envía un solo correo con todos los eventos. |
-| 📅 **Google Calendar** | Evento creado directamente en el calendario de la cuenta del proyecto | Marca la casilla. |
-| ✈️ **Telegram** | Mensaje de un bot propio | @BotFather → `/newbot` → token → escribirle al bot → **Detectar chat**. |
+| 📧 **Correo corporativo** | Resumen diario (por vencer, vence hoy, vencidos sin cortar) | Escribe tu(s) correo(s) corporativo(s). |
+| 📅 **Calendario Outlook / Teams** | Al crear un aumento: **invitación de reunión** de día completo en la fecha de corte, con avisos a las 09:00 del día anterior y del mismo día. Al marcarlo **cortado** o **anulado** llega la **cancelación** y el evento se quita solo. Al reabrirlo se vuelve a enviar. | Casilla activada por defecto. |
+| 🟪 **Canal de Teams** (opcional) | El mismo resumen diario publicado en un canal | Teams → canal → **•••** → **Obtener dirección de correo electrónico** → en *Configuración avanzada* permite que **cualquiera** envíe correos → pega la dirección (`…@….teams.ms`). |
 
-Las claves (API key de WhatsApp, URL de Teams, token de Telegram) se guardan en las *Script Properties* y nunca vuelven a la pantalla.
+Cada destino tiene su botón **Probar**. Al importar desde Excel se envía una invitación por aumento (hasta 20; si son más, un solo correo con un `.ics` con todos).
 
-**Cuota de correos:** una cuenta Gmail gratuita puede enviar ~100 correos al día desde Apps Script (la app muestra cuántos quedan). El resumen diario usa 1; cada invitación `.ics` usa 1.
+**Cuota:** una cuenta Gmail gratuita puede enviar ~100 correos al día desde Apps Script (la app muestra cuántos quedan): resumen diario = 1 (+1 si hay canal de Teams); cada invitación o cancelación = 1.
 
 ## Base de datos
 
