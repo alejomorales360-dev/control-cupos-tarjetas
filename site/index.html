@@ -472,11 +472,17 @@
       .then(function (r) { if (!r.ok) throw new Error(r.error || 'Error desconocido.'); return r.data; });
   }
 
+  // Sesión: con "Mantener sesión" se guarda en localStorage (sobrevive al
+  // cerrar el navegador); sin marcarla, en sessionStorage (se borra al
+  // cerrar la pestaña). El servidor además la vence a las 12 h / 30 días.
   var TOKEN = null;
-  try { TOKEN = localStorage.getItem('cupos_token'); } catch (e) {}
-  function guardarToken(t) {
+  try { TOKEN = sessionStorage.getItem('cupos_token') || localStorage.getItem('cupos_token'); } catch (e) {}
+  function guardarToken(t, recordar) {
     TOKEN = t;
-    try { t ? localStorage.setItem('cupos_token', t) : localStorage.removeItem('cupos_token'); } catch (e) {}
+    try {
+      localStorage.removeItem('cupos_token'); sessionStorage.removeItem('cupos_token');
+      if (t) (recordar ? localStorage : sessionStorage).setItem('cupos_token', t);
+    } catch (e) {}
   }
   function mostrarLogin(msg) {
     guardarToken(null);
@@ -493,7 +499,7 @@
     api('iniciarSesion', [$('l-usuario').value, $('l-clave').value, $('l-recordar').checked])
       .then(function (r) {
         btn.disabled = false;
-        guardarToken(r.token);
+        guardarToken(r.token, $('l-recordar').checked);
         $('login').classList.remove('show');
         $('l-clave').value = '';
         cargar();
