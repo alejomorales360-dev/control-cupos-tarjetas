@@ -1,6 +1,6 @@
 # 💳 Control de Cupos Temporales de Tarjetas
 
-**App en producción:** <https://script.google.com/macros/s/AKfycbzgnO_XkgR7M3a0NvPdXJQdgw2OnagwxV7ILM4PLo2y-6NbU4e3v3u4-NYA966dWBnc/exec> (acceso solo para el dueño)
+**Entrar a la app:** <https://alejomorales360-dev.github.io/control-cupos-tarjetas/> (redirige a la web app de Apps Script, que pide iniciar sesión con la cuenta dueña)
 
 App web en Google Apps Script para llevar el registro de clientes, su **cupo base** y los **aumentos temporales de cupo** (monto + rango de fechas). Todos los días revisa los vencimientos y te **envía una alerta** para que hagas el trámite de corte con el banco.
 
@@ -80,3 +80,11 @@ Usa **Revisar vencimientos ahora** para forzar la revisión sin esperar al día 
 
 Editar el código no cambia la versión que está en la URL `/exec`. Después de pegar los cambios (o hacer `clasp push`):
 **Implementar → Gestionar implementaciones →** lápiz ✏️ → *Versión:* **Nueva versión** → **Implementar**. La URL sigue siendo la misma.
+
+## Enlace de GitHub Pages
+
+`site/index.html` es una página mínima publicada en GitHub Pages que redirige a la URL `/exec` de Apps Script. La app en sí (y los datos) siguen protegidos por el inicio de sesión de Google.
+
+- Se publica sola con el workflow `.github/workflows/pages.yml` cada vez que cambia `site/`.
+- Activación (una sola vez): **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+- Si algún día cambia la URL `/exec` (nueva *implementación*, no nueva *versión*), actualízala en `site/index.html`.
