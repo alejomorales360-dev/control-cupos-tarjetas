@@ -451,6 +451,7 @@
     <div class="field check"><input type="checkbox" id="l-recordar"><label for="l-recordar" style="margin:0">Mantener sesión iniciada 30 días</label></div>
     <div class="err" id="l-error"></div>
     <button type="submit" class="primary">Entrar</button>
+    <div style="text-align:center;margin-top:14px"><a href="#" id="l-servidor" class="sub" onclick="event.preventDefault();cambiarServidor()">Servidor</a></div>
   </form>
 </div>
 
@@ -485,7 +486,22 @@
   }
   function cerrar(id) { $(id).close(); }
   // URL /exec de la implementación de Apps Script (API).
-  var API_URL = 'https://script.google.com/macros/s/AKfycbyhoac65SPFgzsuPUUQEF9BvtEQmqTvRRtxJpXIBW9LXcARrSA-QUaq42MgJ7YeVGLY/exec';
+  // URL por defecto; se puede reemplazar desde el login ("Servidor") y queda
+  // guardada en este navegador.
+  var API_URL_DEFECTO = 'https://script.google.com/macros/s/AKfycby2JNrWKpiDf0tVZToIhekYZN_8YYMdLwJQRvRPC9rKszQY3Zk2g_bUWFIfB4Jkt3SG/exec';
+  var API_URL = API_URL_DEFECTO;
+  try { API_URL = localStorage.getItem('cupos_api') || API_URL_DEFECTO; } catch (e) {}
+
+  function cambiarServidor() {
+    var url = prompt('Pega la URL de la implementación de Apps Script (termina en /exec).\nDéjalo vacío para volver a la de fábrica.', API_URL === API_URL_DEFECTO ? '' : API_URL);
+    if (url === null) return;
+    url = url.trim();
+    if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) { $('l-error').textContent = 'La URL debe ser https://script.google.com/macros/s/…/exec'; return; }
+    try { url ? localStorage.setItem('cupos_api', url) : localStorage.removeItem('cupos_api'); } catch (e) {}
+    API_URL = url || API_URL_DEFECTO;
+    $('l-error').textContent = '';
+    $('l-servidor').textContent = url ? 'Servidor personalizado ✓' : 'Servidor';
+  }
 
   function api(fn, args) {
     return fetch(API_URL, {
@@ -984,6 +1000,7 @@
     });
   }
 
+  if (API_URL !== API_URL_DEFECTO) $('l-servidor').textContent = 'Servidor personalizado ✓';
   if (TOKEN) cargar(); else mostrarLogin();
 </script>
 </body>
