@@ -118,9 +118,38 @@ function instalarTrigger_(hora) {
 // ════════════════════════════════════════════════════════════════
 
 function doGet() {
+  if (!usuarioAutorizado_()) return paginaAccesoDenegado_();
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle(APP_NAME)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONTROL DE ACCESO
+// ════════════════════════════════════════════════════════════════
+//
+// Solo el dueño del proyecto (la cuenta que implementa la web app) puede
+// ver o modificar datos, sin importar cómo se haya configurado "Quién tiene
+// acceso" en la implementación. Cuando otra persona abre la app, Google no
+// entrega su correo (o entrega uno distinto) y se le niega el acceso.
+
+function usuarioAutorizado_() {
+  let activo = '', dueno = '';
+  try { activo = (Session.getActiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  try { dueno = (Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  return !!activo && activo === dueno;
+}
+
+function exigirAcceso_() {
+  if (!usuarioAutorizado_()) throw new Error('Acceso no autorizado.');
+}
+
+function paginaAccesoDenegado_() {
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:Arial,sans-serif;max-width:420px;margin:15vh auto;padding:24px;text-align:center">' +
+    '<div style="font-size:48px">🔒</div><h2>Acceso restringido</h2>' +
+    '<p style="color:#555">Esta aplicación es privada. Inicia sesión con la cuenta autorizada.</p></div>'
+  ).setTitle('Acceso restringido').addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -279,6 +308,7 @@ function aumentoDTO_(a, hoy, diasAviso, clientesById) {
 // ════════════════════════════════════════════════════════════════
 
 function obtenerDatos() {
+  exigirAcceso_();
   const hoy = hoyISO_();
   const diasAviso = getConfig_().diasAviso;
   const clientes = leer_(SH_CLIENTES);
@@ -319,6 +349,7 @@ function obtenerDatos() {
 }
 
 function guardarCliente(c) {
+  exigirAcceso_();
   return conLock_(function () {
     const nombre = String(c.nombre || '').trim();
     if (!nombre) throw new Error('El nombre es obligatorio.');
@@ -360,6 +391,7 @@ function guardarCliente(c) {
 }
 
 function guardarAumento(a) {
+  exigirAcceso_();
   return conLock_(function () {
     const cliente = leer_(SH_CLIENTES).filter(function (x) { return x.ID === a.idCliente; })[0];
     if (!cliente) throw new Error('Selecciona un cliente válido.');
@@ -405,14 +437,17 @@ function guardarAumento(a) {
 }
 
 function marcarCortado(id, nota) {
+  exigirAcceso_();
   return cerrarAumento_(id, ESTADO_CORTADO, nota);
 }
 
 function anularAumento(id, nota) {
+  exigirAcceso_();
   return cerrarAumento_(id, ESTADO_ANULADO, nota);
 }
 
 function reabrirAumento(id) {
+  exigirAcceso_();
   return conLock_(function () {
     const a = leer_(SH_AUMENTOS).filter(function (x) { return x.ID === id; })[0];
     if (!a) throw new Error('Aumento no encontrado.');
@@ -461,6 +496,7 @@ function getConfig_() {
 }
 
 function obtenerConfig() {
+  exigirAcceso_();
   const c = getConfig_();
   const trigger = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === TRIGGER_FN; });
   return {
@@ -476,6 +512,7 @@ function obtenerConfig() {
 }
 
 function guardarConfig(cfg) {
+  exigirAcceso_();
   const props = PropertiesService.getScriptProperties();
   const emails = String(cfg.email || '').split(/[,;\s]+/).filter(String);
   emails.forEach(function (e) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Correo inválido: ' + e); });
@@ -540,11 +577,13 @@ function revisarVencimientos() {
 
 /** Botón "Revisar ahora" de la interfaz. */
 function revisarAhora() {
+  exigirAcceso_();
   return revisarVencimientos();
 }
 
 /** Botón "Enviar prueba" de la interfaz. */
 function enviarPrueba() {
+  exigirAcceso_();
   const cfg = getConfig_();
   const hoy = hoyISO_();
   const ejemplo = {
@@ -675,6 +714,7 @@ function enviarTelegram_(cfg, texto) {
  * "Detectar chat" en la app.
  */
 function detectarChatTelegram() {
+  exigirAcceso_();
   const cfg = getConfig_();
   if (!cfg.telegramToken) throw new Error('Primero guarda el token del bot.');
   const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + cfg.telegramToken + '/getUpdates', { muteHttpExceptions: true });

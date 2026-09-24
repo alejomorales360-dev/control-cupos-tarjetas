@@ -65,7 +65,10 @@ Usa **Revisar vencimientos ahora** para forzar la revisión sin esperar al día 
 
 ## Seguridad
 
-- La web app se publica con acceso **"Solo yo"**: nadie más puede abrirla. Si necesitas que un compañero la use, cambia `webapp.access` a `DOMAIN` (misma organización de Google Workspace) y comparte la planilla con esa persona.
+- **Doble candado de acceso:**
+  1. La implementación debe tener **Quién tiene acceso: Solo yo** (Implementar → Gestionar implementaciones → ✏️). Lo que se elige ahí manda sobre `appsscript.json`.
+  2. Además, el código verifica en cada pantalla y cada operación que quien entra sea la cuenta dueña del proyecto; cualquier otra persona ve "🔒 Acceso restringido" y no puede leer ni modificar datos, aunque la implementación quede abierta por error.
+- Comprobación: abre el enlace en una ventana de incógnito (sin sesión) o con otra cuenta de Google → no debe mostrar la app.
 - Solo se guardan los **últimos 4 dígitos** de la tarjeta. No registres números completos, CVV ni fechas de expiración.
 - El token de Telegram se guarda en las *Script Properties* del proyecto, no en la planilla.
 
