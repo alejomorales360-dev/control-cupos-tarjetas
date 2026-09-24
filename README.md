@@ -1,6 +1,6 @@
 # 💳 Control de Cupos Temporales de Tarjetas
 
-**Entrar a la app:** <https://alejomorales360-dev.github.io/control-cupos-tarjetas/> (redirige a la web app, que pide usuario y clave)
+**Entrar a la app:** <https://alejomorales360-dev.github.io/control-cupos-tarjetas/> (pide usuario y clave)
 
 App web en Google Apps Script para llevar el registro de clientes, su **cupo base** y los **aumentos temporales de cupo** (monto + rango de fechas). Todos los días revisa los vencimientos y te **envía una alerta** para que hagas el trámite de corte con el banco.
 
@@ -9,14 +9,25 @@ App web en Google Apps Script para llevar el registro de clientes, su **cupo bas
 > - 15-10 → alerta "**vence hoy**, hacer trámite con el banco"
 > - 16-10 en adelante → alerta diaria "**vencido sin cortar**" hasta que lo marques como *Cortado* en la app
 
-## Qué incluye
+## Arquitectura
 
-| Parte | Descripción |
-|---|---|
-| **Base de datos** | Una planilla de Google Sheets que se crea sola, con las hojas `CLIENTES`, `AUMENTOS` e `HISTORIAL` (registro de cada acción). |
-| **App web** (`index.html`) | Panel con lo pendiente, alta/edición de clientes y aumentos, botón **"Marcar cortado"**, cupo actual de cada cliente. Funciona en el celular. |
-| **Revisión diaria** | Disparador de Apps Script que corre todos los días a la hora que elijas. |
-| **Alertas** | 📧 Correo (Gmail, sin configurar nada) · ✈️ Telegram (opcional, notificación push al celular) · 📅 Evento en Google Calendar el día del corte (opcional). |
+```
+ Navegador / celular                    Google (tu cuenta)
+┌──────────────────────────┐  POST    ┌────────────────────────────┐    ┌──────────────┐
+│ site/index.html          │ ───────▶ │ Apps Script  (Codigo.gs)   │ ──▶│ Google Sheets│
+│ GitHub Pages (github.io) │ ◀─────── │ API JSON + login + alertas │    │ (base datos) │
+└──────────────────────────┘  JSON    └────────────────────────────┘    └──────────────┘
+                                         │ disparador diario → 📧 correo · ✈️ Telegram · 📅 Calendar
+```
+
+| Parte | Dónde vive | Cómo se actualiza |
+|---|---|---|
+| **Interfaz** (`site/index.html`) | GitHub Pages | Automático: cada push a `main` que toque `site/` se publica en 1-2 min. |
+| **Backend / API** (`Codigo.gs`) | Apps Script | Pegar `Codigo.gs` en el editor → *Gestionar implementaciones* → ✏️ → *Nueva versión*. |
+| **Base de datos** | Google Sheets (hojas `CLIENTES`, `AUMENTOS`, `HISTORIAL`) | La crea `setup()`. |
+| **Alertas** | Disparador diario de Apps Script | Configuración desde la app. |
+
+La interfaz llama a la API con `fetch` POST (`Content-Type: text/plain`, para evitar el preflight CORS). La URL de la API está en `API_URL` dentro de `site/index.html`; si alguna vez creas una *implementación nueva* (no *nueva versión*), actualiza esa constante.
 
 ## Estados de un aumento
 
@@ -34,10 +45,10 @@ App web en Google Apps Script para llevar el registro de clientes, su **cupo bas
 ### Opción A — Sin instalar nada (copiar y pegar)
 1. Entra a <https://script.google.com> → **Nuevo proyecto**. Ponle nombre, p. ej. *Control de Cupos*.
 2. Reemplaza el contenido de `Código.gs` por el de [`Codigo.gs`](Codigo.gs).
-3. **Archivo → Nuevo → HTML**, nómbralo `index` y pega el contenido de [`index.html`](index.html).
+3. La interfaz no va en Apps Script: está en [`site/index.html`](site/index.html) y la publica GitHub Pages.
 4. ⚙️ **Configuración del proyecto** → marca *"Mostrar el archivo de manifiesto appsscript.json"* y pega el contenido de [`appsscript.json`](appsscript.json). Ajusta `timeZone` a tu país si no es Ecuador (p. ej. `America/Bogota`, `America/Lima`, `America/Mexico_City`, `America/Santiago`).
 5. En el editor, selecciona la función **`setup`** y pulsa **Ejecutar**. Acepta los permisos. Esto crea la planilla, el disparador diario y la clave de acceso inicial (usuario, clave y URL de la planilla aparecen en el registro).
-6. **Implementar → Nueva implementación → Aplicación web**. *Ejecutar como:* Yo. *Quién tiene acceso:* Cualquier persona (la app se protege con su propio login). Copia la URL y guárdala en favoritos / pantalla de inicio del celular.
+6. **Implementar → Nueva implementación → Aplicación web**. *Ejecutar como:* Yo. *Quién tiene acceso:* Cualquier persona (la app se protege con su propio login). Copia la URL `/exec` en `API_URL` de `site/index.html`.
 
 ### Opción B — Con `clasp`
 ```bash
@@ -79,8 +90,9 @@ La app tiene **login propio con usuario y clave**, para entrar desde cualquier e
 
 ## Archivos
 
-- `Codigo.gs` — backend: base de datos, lógica de estados, revisión diaria y envío de alertas.
-- `index.html` — interfaz web.
+- `Codigo.gs` — backend (Apps Script): API JSON, login, base de datos, revisión diaria y alertas.
+- `site/index.html` — interfaz web (GitHub Pages).
+- `.github/workflows/pages.yml` — publica `site/` en GitHub Pages.
 - `appsscript.json` — manifest (zona horaria, acceso de la web app).
 - `.clasp.json.example` — plantilla para `clasp`.
 
@@ -88,11 +100,3 @@ La app tiene **login propio con usuario y clave**, para entrar desde cualquier e
 
 Editar el código no cambia la versión que está en la URL `/exec`. Después de pegar los cambios (o hacer `clasp push`):
 **Implementar → Gestionar implementaciones →** lápiz ✏️ → *Versión:* **Nueva versión** → **Implementar**. La URL sigue siendo la misma.
-
-## Enlace de GitHub Pages
-
-`site/index.html` es una página mínima publicada en GitHub Pages que redirige a la URL `/exec` de Apps Script. Los datos siguen protegidos por el login de la app.
-
-- Se publica sola con el workflow `.github/workflows/pages.yml` cada vez que cambia `site/`.
-- Activación (una sola vez): **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-- Si algún día cambia la URL `/exec` (nueva *implementación*, no nueva *versión*), actualízala en `site/index.html`.

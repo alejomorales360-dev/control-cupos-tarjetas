@@ -34,6 +34,7 @@
 // ════════════════════════════════════════════════════════════════
 
 const APP_NAME     = 'Control de Cupos';
+const APP_URL      = 'https://alejomorales360-dev.github.io/control-cupos-tarjetas/';
 const SH_CLIENTES  = 'CLIENTES';
 const SH_AUMENTOS  = 'AUMENTOS';
 const SH_HISTORIAL = 'HISTORIAL';
@@ -119,10 +120,49 @@ function instalarTrigger_(hora) {
 // WEB APP
 // ════════════════════════════════════════════════════════════════
 
+// La interfaz vive en GitHub Pages (APP_URL). Este proyecto solo expone
+// una API JSON por POST: { fn: 'nombreFuncion', args: [...] }.
+// Se envía como text/plain para que el navegador no haga preflight CORS.
+
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle(APP_NAME)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:Arial,sans-serif;text-align:center;margin-top:20vh">' +
+    '<p>Control de Cupos se abre en <a href="' + APP_URL + '" target="_top">' + APP_URL + '</a></p></div>'
+  ).setTitle(APP_NAME).addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function doPost(e) {
+  // Solo estas funciones se pueden llamar desde fuera. Todas, salvo el
+  // login, validan el token de sesión que llega como primer argumento.
+  const API = {
+    iniciarSesion: iniciarSesion,
+    cerrarSesion: cerrarSesion,
+    cambiarCredenciales: cambiarCredenciales,
+    obtenerDatos: obtenerDatos,
+    guardarCliente: guardarCliente,
+    guardarAumento: guardarAumento,
+    marcarCortado: marcarCortado,
+    anularAumento: anularAumento,
+    reabrirAumento: reabrirAumento,
+    obtenerConfig: obtenerConfig,
+    guardarConfig: guardarConfig,
+    revisarAhora: revisarAhora,
+    enviarPrueba: enviarPrueba,
+    detectarChatTelegram: detectarChatTelegram
+  };
+  let req;
+  try { req = JSON.parse(e.postData.contents); } catch (err) { return jsonOut_({ ok: false, error: 'Solicitud inválida.' }); }
+  const fn = req && Object.prototype.hasOwnProperty.call(API, req.fn) ? API[req.fn] : null;
+  if (!fn) return jsonOut_({ ok: false, error: 'Operación no permitida.' });
+  try {
+    return jsonOut_({ ok: true, data: fn.apply(null, Array.isArray(req.args) ? req.args : []) });
+  } catch (err) {
+    return jsonOut_({ ok: false, error: err && err.message ? err.message : String(err) });
+  }
+}
+
+function jsonOut_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -820,7 +860,7 @@ function htmlAlerta_(g, hoy, cfg) {
 }
 
 function urlApp_() {
-  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+  return APP_URL;
 }
 
 // ════════════════════════════════════════════════════════════════
