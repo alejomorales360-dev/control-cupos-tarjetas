@@ -103,6 +103,21 @@
   .imp-table tr.err td { background: var(--red-bg); }
   .imp-sum { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   dialog.wide { width: min(760px, calc(100vw - 32px)); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .chip { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--gray-bg); color: var(--muted); }
+  .chip.on { background: var(--green-bg); color: var(--green); font-weight: 600; }
+  .chip.off-bad { background: var(--red-bg); color: var(--red); font-weight: 600; }
+  .canales { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+  .canal { border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .canal-h { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .canal-h > div { flex: 1; }
+  .canal-ico { font-size: 24px; }
+  .estado { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--gray-bg); color: var(--muted); white-space: nowrap; }
+  .estado.on { background: var(--green-bg); color: var(--green); }
+  details { margin-bottom: 10px; font-size: 14px; }
+  summary { cursor: pointer; color: var(--blue); }
+  .pasos { margin: 8px 0 0; padding-left: 20px; color: var(--muted); } .pasos li { margin-bottom: 4px; }
+  .aviso-setup { background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
 </style>
 </head>
 <body>
@@ -190,19 +205,15 @@
   <!-- CONFIG -->
   <section class="tab" id="tab-config">
     <div class="panel">
-      <h2>Alertas</h2>
-      <div id="cfg-estado"></div>
+      <h2>Alertas <span class="actions"><button type="button" class="small" onclick="revisarAhora()">Revisar vencimientos ahora</button></span></h2>
+      <div class="chips" id="cfg-chips"></div>
+      <div id="cfg-aviso"></div>
       <form id="form-config" onsubmit="guardarConfig(event)">
-        <div class="field">
-          <label>Correo(s) para recibir alertas</label>
-          <input id="cfg-email" placeholder="tu@correo.com, otro@correo.com">
-          <div class="hint">Separa varios correos con coma.</div>
-        </div>
         <div class="grid2">
           <div class="field">
             <label>Días de aviso previo</label>
             <input id="cfg-dias" type="number" min="0" max="60">
-            <div class="hint">Te avisa desde N días antes de la fecha de fin.</div>
+            <div class="hint">Avisa desde N días antes de la fecha de fin, luego el mismo día y cada día mientras no se marque como cortado.</div>
           </div>
           <div class="field">
             <label>Hora de la revisión diaria</label>
@@ -210,32 +221,76 @@
             <div class="hint" id="cfg-tz"></div>
           </div>
         </div>
-        <div class="field check">
-          <input type="checkbox" id="cfg-calendar"><label for="cfg-calendar" style="margin:0">Crear un evento en mi Google Calendar en la fecha de fin de cada aumento</label>
-        </div>
-        <h2 style="margin-top:20px">Telegram (opcional)</h2>
-        <div class="hint" style="margin-bottom:12px">
-          1) En Telegram, habla con <b>@BotFather</b>, envía <code>/newbot</code> y copia el token.
-          2) Pégalo aquí y guarda. 3) Abre tu bot y envíale cualquier mensaje. 4) Pulsa <b>Detectar chat</b>.
-        </div>
-        <div class="grid2">
-          <div class="field">
-            <label>Token del bot</label>
-            <input id="cfg-tg-token" placeholder="(sin cambios)" autocomplete="off">
+
+        <div class="canales">
+          <!-- CORREO -->
+          <div class="canal">
+            <div class="canal-h"><span class="canal-ico">📧</span><div><b>Correo</b><div class="sub">Gmail, Outlook o cualquier correo</div></div><span class="estado" id="st-email"></span></div>
+            <div class="field"><label>Correo(s) para recibir alertas</label><input id="cfg-email" placeholder="tu@correo.com, otro@empresa.com"><div class="hint">Separa varios con coma. <span id="cfg-cuota"></span></div></div>
+            <button type="button" class="small" onclick="probar('email')">Probar correo</button>
           </div>
-          <div class="field">
-            <label>Chat ID</label>
-            <input id="cfg-tg-chat" placeholder="Se detecta automáticamente">
+
+          <!-- WHATSAPP -->
+          <div class="canal">
+            <div class="canal-h"><span class="canal-ico">💬</span><div><b>WhatsApp</b><div class="sub">Mensaje a tu propio WhatsApp (CallMeBot, gratis)</div></div><span class="estado" id="st-wsp"></span></div>
+            <details><summary>Cómo activarlo (1 minuto)</summary>
+              <ol class="pasos">
+                <li>Agrega a tus contactos el número <b>+34 644 51 95 23</b> (CallMeBot).</li>
+                <li>Envíale por WhatsApp exactamente: <code>I allow callmebot to send me messages</code></li>
+                <li>Te responde con tu <b>API key</b>. Pégala abajo junto a tu número y guarda.</li>
+              </ol>
+            </details>
+            <div class="grid2">
+              <div class="field"><label>Tu número (con código de país)</label><input id="cfg-wsp-tel" placeholder="+56912345678" inputmode="tel"></div>
+              <div class="field"><label>API key</label><input id="cfg-wsp-key" autocomplete="off"></div>
+            </div>
+            <div class="toolbar"><button type="button" class="small" onclick="probar('whatsapp')">Probar WhatsApp</button><button type="button" class="danger small" onclick="quitarCanal('Wsp')">Quitar</button></div>
+          </div>
+
+          <!-- TEAMS -->
+          <div class="canal">
+            <div class="canal-h"><span class="canal-ico">🟪</span><div><b>Microsoft Teams</b><div class="sub">Tarjeta en un canal o chat de Teams</div></div><span class="estado" id="st-teams"></span></div>
+            <details><summary>Cómo activarlo (2 minutos)</summary>
+              <ol class="pasos">
+                <li>En Teams, abre el canal o chat donde quieres las alertas → <b>•••</b> → <b>Workflows</b>.</li>
+                <li>Elige la plantilla <b>“Send webhook alerts to a channel”</b> (o <b>“…to a chat”</b>) y sigue los pasos.</li>
+                <li>Al terminar te muestra una <b>URL</b>: cópiala, pégala abajo y guarda.</li>
+              </ol>
+            </details>
+            <div class="field"><label>URL del webhook</label><input id="cfg-teams" autocomplete="off" placeholder="https://…"></div>
+            <div class="toolbar"><button type="button" class="small" onclick="probar('teams')">Probar Teams</button><button type="button" class="danger small" onclick="quitarCanal('Teams')">Quitar</button></div>
+          </div>
+
+          <!-- CALENDARIO -->
+          <div class="canal">
+            <div class="canal-h"><span class="canal-ico">📅</span><div><b>Calendario</b><div class="sub">Evento el día del corte, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
+            <div class="field check"><input type="checkbox" id="cfg-ics"><label for="cfg-ics" style="margin:0"><b>Outlook / Teams</b> (o cualquier calendario): enviarme una invitación <code>.ics</code> por correo al crear cada aumento</label></div>
+            <div class="hint" style="margin:-6px 0 10px 26px">Abres el adjunto y queda en tu calendario, con aviso a las 09:00 del día anterior y del mismo día.</div>
+            <div class="field check"><input type="checkbox" id="cfg-calendar"><label for="cfg-calendar" style="margin:0"><b>Google Calendar</b>: crear el evento directamente en el calendario de la cuenta de Google del proyecto</label></div>
+            <button type="button" class="small" onclick="probar('ics')">Enviarme invitación de prueba</button>
+          </div>
+
+          <!-- TELEGRAM -->
+          <div class="canal">
+            <div class="canal-h"><span class="canal-ico">✈️</span><div><b>Telegram</b><div class="sub">Mensaje de un bot propio</div></div><span class="estado" id="st-tg"></span></div>
+            <details><summary>Cómo activarlo</summary>
+              <ol class="pasos">
+                <li>En Telegram, habla con <b>@BotFather</b>, envía <code>/newbot</code> y copia el token.</li>
+                <li>Pégalo abajo y guarda. Luego abre tu bot y envíale cualquier mensaje.</li>
+                <li>Pulsa <b>Detectar chat</b>.</li>
+              </ol>
+            </details>
+            <div class="grid2">
+              <div class="field"><label>Token del bot</label><input id="cfg-tg-token" autocomplete="off"></div>
+              <div class="field"><label>Chat ID</label><input id="cfg-tg-chat" placeholder="Se detecta automáticamente"></div>
+            </div>
+            <div class="toolbar"><button type="button" class="small" onclick="detectarChat()">Detectar chat</button><button type="button" class="small" onclick="probar('telegram')">Probar Telegram</button><button type="button" class="danger small" onclick="quitarCanal('Telegram')">Quitar</button></div>
           </div>
         </div>
-        <div class="toolbar">
-          <button type="button" onclick="detectarChat()">Detectar chat</button>
-          <button type="button" class="danger" onclick="quitarTelegram()">Quitar Telegram</button>
-        </div>
+
         <div class="dlg-actions" style="justify-content:flex-start;margin-top:16px">
           <button type="submit" class="primary">Guardar configuración</button>
-          <button type="button" onclick="probar()">Enviar alerta de prueba</button>
-          <button type="button" onclick="revisarAhora()">Revisar vencimientos ahora</button>
+          <button type="button" onclick="probar()">Probar todos los canales</button>
         </div>
       </form>
     </div>
@@ -256,8 +311,15 @@
     </div>
     <div class="panel">
       <h2>Base de datos</h2>
-      <p class="status-line">Todos los datos viven en una planilla de Google Sheets (hojas CLIENTES, AUMENTOS e HISTORIAL).</p>
-      <p><a id="link-planilla" href="#" target="_blank">Abrir planilla ↗</a></p>
+      <p class="status-line">Los datos se guardan en: <a id="link-planilla" href="#" target="_blank">cargando…</a></p>
+      <form onsubmit="cambiarPlanilla(event)">
+        <div class="field">
+          <label>Usar otra planilla de Google Sheets</label>
+          <input id="bd-url" placeholder="https://docs.google.com/spreadsheets/d/…/edit" required>
+          <div class="hint">Pega la URL de una planilla de tu cuenta de Google. Se crean en ella las hojas <b>CLIENTES</b>, <b>AUMENTOS</b> e <b>HISTORIAL</b> (no se tocan otras hojas). Los datos de la planilla anterior no se mueven: si ya importaste clientes, vuelve a importar el Excel.</div>
+        </div>
+        <button type="submit" class="primary">Usar esta planilla</button>
+      </form>
     </div>
   </section>
 </main>
@@ -764,42 +826,75 @@
     $('cfg-hora').innerHTML = h;
   })();
 
+  var CFG = {};
+  function estado(id, on, txt) { var e = $(id); e.textContent = txt || (on ? 'Activo' : 'Inactivo'); e.className = 'estado' + (on ? ' on' : ''); }
   function pintarConfig(c) {
+    CFG = c;
     $('cfg-email').value = c.email;
     $('cfg-dias').value = c.diasAviso;
     $('cfg-hora').value = c.hora;
     $('cfg-calendar').checked = c.usarCalendar;
-    $('cfg-tg-token').value = '';
-    $('cfg-tg-token').placeholder = c.telegramConfigurado ? '•••••• (configurado — deja vacío para no cambiar)' : 'Pega aquí el token de @BotFather';
-    $('cfg-tg-chat').value = c.telegramChatId || '';
+    $('cfg-ics').checked = c.icsInvitacion;
     $('cfg-tz').textContent = 'Zona horaria: ' + c.zonaHoraria;
-    $('cfg-estado').innerHTML =
-      '<p class="status-line">' + (c.triggerActivo ? '🟢 Revisión diaria activa.' : '🔴 Revisión diaria NO instalada — guarda la configuración para activarla.') + '</p>' +
-      '<p class="status-line">📧 Email: ' + (c.email ? esc(c.email) : '<b>sin configurar</b>') + '</p>' +
-      '<p class="status-line">✈️ Telegram: ' + (c.telegramConfigurado && c.telegramChatId ? 'activo' : c.telegramConfigurado ? 'falta detectar el chat' : 'no configurado') + '</p>' +
-      '<p class="status-line">📅 Google Calendar: ' + (c.usarCalendar ? 'activo' : 'desactivado') + '</p>';
+    if (c.planilla) { $('link-planilla').textContent = c.planilla.nombre + ' ↗'; $('link-planilla').href = c.planilla.url; }
+    $('cfg-cuota').textContent = c.cuotaCorreo != null ? 'Correos disponibles hoy: ' + c.cuotaCorreo + '.' : '';
+    $('cfg-wsp-tel').value = c.wspTelefono || '';
+    $('cfg-wsp-key').value = ''; $('cfg-wsp-key').placeholder = c.wspConfigurado ? '•••••• guardada (vacío = sin cambios)' : 'La que te envía CallMeBot';
+    $('cfg-teams').value = ''; $('cfg-teams').placeholder = c.teamsConfigurado ? '•••••• guardada (vacío = sin cambios)' : 'https://…';
+    $('cfg-tg-token').value = ''; $('cfg-tg-token').placeholder = c.telegramConfigurado ? '•••••• guardado (vacío = sin cambios)' : 'Token de @BotFather';
+    $('cfg-tg-chat').value = c.telegramChatId || '';
+    var tg = c.telegramConfigurado && c.telegramChatId;
+    estado('st-email', !!c.email); estado('st-wsp', c.wspConfigurado); estado('st-teams', c.teamsConfigurado);
+    estado('st-cal', c.icsInvitacion || c.usarCalendar, c.icsInvitacion && c.usarCalendar ? 'Outlook + Google' : c.icsInvitacion ? 'Outlook/Teams' : c.usarCalendar ? 'Google' : 'Inactivo');
+    estado('st-tg', tg, tg ? 'Activo' : c.telegramConfigurado ? 'Falta chat' : 'Inactivo');
+    var chip = function (on, txt, bad) { return '<span class="chip ' + (on ? 'on' : bad ? 'off-bad' : '') + '">' + txt + '</span>'; };
+    $('cfg-chips').innerHTML =
+      chip(c.triggerActivo, c.triggerActivo ? '⏰ Revisión diaria activa' : '⏰ Revisión diaria NO instalada', true) +
+      chip(!!c.email, '📧 Correo') + chip(c.wspConfigurado, '💬 WhatsApp') + chip(c.teamsConfigurado, '🟪 Teams') +
+      chip(c.icsInvitacion || c.usarCalendar, '📅 Calendario') + chip(tg, '✈️ Telegram');
+    $('cfg-aviso').innerHTML = (!c.triggerActivo || !c.email)
+      ? '<div class="aviso-setup">⚠️ Falta la configuración inicial: en el editor de Apps Script ejecuta <b>setup</b> una vez (crea la planilla, el correo de alertas y la revisión diaria). Luego pulsa <b>Guardar configuración</b>.</div>' : '';
   }
   function cargarConfig() { call('obtenerConfig', [], pintarConfig); }
+  function cambiarPlanilla(e) {
+    e.preventDefault();
+    if (!confirm('¿Guardar los datos desde ahora en esta planilla?')) return;
+    call('cambiarPlanilla', [$('bd-url').value], function (r) {
+      $('bd-url').value = '';
+      toast('Ahora los datos se guardan en “' + r.nombre + '”');
+      cargarConfig(); cargar();
+    }, e.submitter);
+  }
+  function leerConfig() {
+    return {
+      email: $('cfg-email').value, diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
+      usarCalendar: $('cfg-calendar').checked, icsInvitacion: $('cfg-ics').checked,
+      wspTelefono: $('cfg-wsp-tel').value, wspApiKey: $('cfg-wsp-key').value,
+      teamsWebhook: $('cfg-teams').value,
+      telegramToken: $('cfg-tg-token').value, telegramChatId: $('cfg-tg-chat').value
+    };
+  }
   function guardarConfig(e) {
     e.preventDefault();
-    var cfg = {
-      email: $('cfg-email').value, diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
-      usarCalendar: $('cfg-calendar').checked, telegramToken: $('cfg-tg-token').value, telegramChatId: $('cfg-tg-chat').value
-    };
-    call('guardarConfig', [cfg], function (c) { pintarConfig(c); toast('Configuración guardada'); cargar(); }, e.submitter);
+    call('guardarConfig', [leerConfig()], function (c) { pintarConfig(c); toast('Configuración guardada'); cargar(); }, e.submitter);
   }
-  function quitarTelegram() {
-    if (!confirm('¿Quitar la configuración de Telegram?')) return;
-    var cfg = { email: $('cfg-email').value, diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value, usarCalendar: $('cfg-calendar').checked, borrarTelegram: true };
-    call('guardarConfig', [cfg], function (c) { pintarConfig(c); toast('Telegram quitado'); });
+  function quitarCanal(canal) {
+    var nombres = { Wsp: 'WhatsApp', Teams: 'Teams', Telegram: 'Telegram' };
+    if (!confirm('¿Quitar la configuración de ' + nombres[canal] + '?')) return;
+    var cfg = leerConfig(); cfg['borrar' + canal] = true;
+    call('guardarConfig', [cfg], function (c) { pintarConfig(c); toast(nombres[canal] + ' quitado'); });
   }
   function detectarChat() {
     call('detectarChatTelegram', [], function (r) { $('cfg-tg-chat').value = r.chatId; toast('Chat detectado: ' + (r.nombre || r.chatId)); cargarConfig(); });
   }
-  function probar() {
-    call('enviarPrueba', [], function (r) {
-      if (r.errores.length) toast(r.errores.join(' · '), true);
-      else toast('Prueba enviada por: ' + r.canales.join(', '));
+  function probar(canal) {
+    // Guarda primero lo que haya en pantalla para probar con esos datos
+    call('guardarConfig', [leerConfig()], function (c) {
+      pintarConfig(c);
+      call('enviarPrueba', [canal || ''], function (r) {
+        if (r.errores.length) toast(r.errores.join(' · '), true);
+        else toast('Prueba enviada por: ' + r.canales.join(', '));
+      });
     });
   }
   function revisarAhora() {

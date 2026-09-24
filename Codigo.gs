@@ -90,6 +90,29 @@ function getSS_() {
   return ss;
 }
 
+/**
+ * Cambia la planilla donde se guardan los datos (URL completa o ID).
+ * Crea en ella las hojas CLIENTES, AUMENTOS e HISTORIAL si no existen;
+ * no borra ni modifica otras hojas que ya tenga.
+ */
+function cambiarPlanilla(token, urlOId) {
+  exigirSesion_(token);
+  const txt = String(urlOId || '').trim();
+  const m = txt.match(/\/d\/([a-zA-Z0-9_-]{20,})/) || txt.match(/^([a-zA-Z0-9_-]{20,})$/);
+  if (!m) throw new Error('Pega la URL completa de la planilla (https://docs.google.com/spreadsheets/d/…).');
+  let ss;
+  try { ss = SpreadsheetApp.openById(m[1]); }
+  catch (e) { throw new Error('No pude abrir esa planilla. Revisa la URL y que sea de la misma cuenta de Google que el proyecto de Apps Script.'); }
+  ensureSheets_(ss);
+  ['Hoja 1', 'Sheet1', 'Hoja1'].forEach(function (n) {
+    const h = ss.getSheetByName(n);
+    if (h && h.getLastRow() === 0 && h.getLastColumn() === 0 && ss.getSheets().length > 1) ss.deleteSheet(h);
+  });
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
+  log_('PLANILLA_CAMBIADA', ss.getName() + ' · ' + ss.getUrl());
+  return { nombre: ss.getName(), url: ss.getUrl() };
+}
+
 function ensureSheets_(ss) {
   Object.keys(HEADERS).forEach(function (name) {
     let sh = ss.getSheetByName(name);
@@ -149,7 +172,8 @@ function doPost(e) {
     revisarAhora: revisarAhora,
     enviarPrueba: enviarPrueba,
     detectarChatTelegram: detectarChatTelegram,
-    importarDatos: importarDatos
+    importarDatos: importarDatos,
+    cambiarPlanilla: cambiarPlanilla
   };
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return jsonOut_({ ok: false, error: 'Solicitud inválida.' }); }
@@ -612,6 +636,11 @@ function importarDatos(token, filas, soloValidar) {
     agregarFilas_(SH_CLIENTES, nuevosClientes);
     actualizaciones.forEach(function (c) { escribirFila_(SH_CLIENTES, c, c._row); });
     agregarFilas_(SH_AUMENTOS, nuevosAumentos);
+    const cfgImp = getConfig_();
+    if (nuevosAumentos.length && cfgImp.icsInvitacion && cfgImp.email) {
+      // Un solo correo con todos los eventos (cuida la cuota diaria de correos)
+      try { enviarInvitacionIcs_(cfgImp, nuevosAumentos); } catch (e) { Logger.log('No se pudo enviar la invitación: ' + e); }
+    }
     log_('IMPORTACION', res.clientesNuevos + ' clientes nuevos, ' + res.clientesActualizados + ' actualizados, ' +
       res.aumentosNuevos + ' aumentos nuevos, ' + res.errores.length + ' filas con error');
     delete res.filas;
@@ -718,6 +747,10 @@ function guardarAumento(token, a) {
     }
 
     escribirFila_(SH_AUMENTOS, obj, existente ? existente._row : null);
+    const cfgAum = getConfig_();
+    if (cfgAum.icsInvitacion && cfgAum.email) {
+      try { enviarInvitacionIcs_(cfgAum, [obj]); } catch (e) { Logger.log('No se pudo enviar la invitación: ' + e); }
+    }
     log_(existente ? 'AUMENTO_EDITADO' : 'AUMENTO_CREADO',
       cliente.NOMBRE + ' · +' + money_(monto) + ' del ' + isoADMY_(ini) + ' al ' + isoADMY_(fin));
     return obj.ID;
@@ -779,7 +812,11 @@ function getConfig_() {
     hora: Math.min(23, Math.max(0, parseInt(p.HORA_ALERTA || '8', 10) || 0)),
     telegramToken: p.TELEGRAM_TOKEN || '',
     telegramChatId: p.TELEGRAM_CHAT_ID || '',
-    usarCalendar: p.USAR_CALENDAR === 'true'
+    usarCalendar: p.USAR_CALENDAR === 'true',
+    icsInvitacion: p.ICS_INVITACION === 'true',
+    wspTelefono: p.WSP_TELEFONO || '',
+    wspApiKey: p.WSP_APIKEY || '',
+    teamsWebhook: p.TEAMS_WEBHOOK || ''
   };
 }
 
@@ -794,7 +831,13 @@ function obtenerConfig(token) {
     telegramConfigurado: !!c.telegramToken,
     telegramChatId: c.telegramChatId,
     usarCalendar: c.usarCalendar,
+    icsInvitacion: c.icsInvitacion,
+    wspTelefono: c.wspTelefono,
+    wspConfigurado: !!(c.wspTelefono && c.wspApiKey),
+    teamsConfigurado: !!c.teamsWebhook,
     triggerActivo: trigger,
+    planilla: (function () { try { const ss = getSS_(); return { nombre: ss.getName(), url: ss.getUrl() }; } catch (e) { return null; } })(),
+    cuotaCorreo: (function () { try { return MailApp.getRemainingDailyQuota(); } catch (e) { return null; } })(),
     zonaHoraria: tz_()
   };
 }
@@ -809,6 +852,27 @@ function guardarConfig(token, cfg) {
   const hora = Math.min(23, Math.max(0, parseInt(cfg.hora, 10) || 0));
   props.setProperty('HORA_ALERTA', String(hora));
   props.setProperty('USAR_CALENDAR', cfg.usarCalendar ? 'true' : 'false');
+  props.setProperty('ICS_INVITACION', cfg.icsInvitacion ? 'true' : 'false');
+
+  // WhatsApp (CallMeBot)
+  if (cfg.borrarWsp) { props.deleteProperty('WSP_TELEFONO'); props.deleteProperty('WSP_APIKEY'); }
+  else {
+    if (cfg.wspTelefono !== undefined) {
+      const tel = String(cfg.wspTelefono || '').replace(/[^\d+]/g, '');
+      if (tel && !/^\+?\d{8,15}$/.test(tel)) throw new Error('Teléfono de WhatsApp inválido. Usa el formato internacional, ej: +56912345678');
+      if (tel) props.setProperty('WSP_TELEFONO', tel.charAt(0) === '+' ? tel : '+' + tel); else props.deleteProperty('WSP_TELEFONO');
+    }
+    if (cfg.wspApiKey) props.setProperty('WSP_APIKEY', String(cfg.wspApiKey).trim());
+  }
+
+  // Microsoft Teams (webhook de Workflows)
+  if (cfg.borrarTeams) props.deleteProperty('TEAMS_WEBHOOK');
+  else if (cfg.teamsWebhook) {
+    const url = String(cfg.teamsWebhook).trim();
+    if (!/^https:\/\/[^\s]+$/.test(url)) throw new Error('La URL del webhook de Teams debe empezar con https://');
+    props.setProperty('TEAMS_WEBHOOK', url);
+  }
+
   if (cfg.telegramToken) props.setProperty('TELEGRAM_TOKEN', String(cfg.telegramToken).trim());
   if (cfg.borrarTelegram) { props.deleteProperty('TELEGRAM_TOKEN'); props.deleteProperty('TELEGRAM_CHAT_ID'); }
   if (cfg.telegramChatId !== undefined && !cfg.borrarTelegram) props.setProperty('TELEGRAM_CHAT_ID', String(cfg.telegramChatId).trim());
@@ -879,7 +943,7 @@ function revisarAhora(token) {
 }
 
 /** Botón "Enviar prueba" de la interfaz. */
-function enviarPrueba(token) {
+function enviarPrueba(token, canal) {
   exigirSesion_(token);
   const cfg = getConfig_();
   const hoy = hoyISO_();
@@ -887,25 +951,48 @@ function enviarPrueba(token) {
     id: 'PRUEBA', cliente: 'Cliente de prueba', banco: 'Banco', tarjeta: '1234', cupoBase: 5000,
     monto: 2000, inicio: hoy, fin: hoy, diasRestantes: 0, estadoCalc: 'VENCE_HOY', motivo: 'Mensaje de prueba'
   };
-  const r = enviarAlertas_({ vencidos: [], venceHoy: [ejemplo], porVencer: [], inicianHoy: [] }, hoy, cfg, true);
+  if (canal === 'ics') {
+    if (!cfg.email) throw new Error('Configura primero un correo.');
+    enviarInvitacionIcs_(cfg, [{ ID: 'PRUEBA-' + Date.now(), CLIENTE: 'Cliente de prueba', MONTO: 2000, FECHA_INICIO: hoy, FECHA_FIN: hoy, MOTIVO: 'Prueba' }], true);
+    return { canales: ['invitación de calendario'], errores: [] };
+  }
+  const r = enviarAlertas_({ vencidos: [], venceHoy: [ejemplo], porVencer: [], inicianHoy: [] }, hoy, cfg, true, canal);
   log_('PRUEBA_ALERTA', r.canales.join(', ') + (r.errores.length ? ' · errores: ' + r.errores.join(' | ') : ''));
   return r;
 }
 
-function enviarAlertas_(g, hoy, cfg, esPrueba) {
+function enviarAlertas_(g, hoy, cfg, esPrueba, soloCanal) {
+  const usar = function (c) { return !soloCanal || soloCanal === c; };
   const canales = [], errores = [];
   const urgentes = g.vencidos.length + g.venceHoy.length;
   const asunto = (esPrueba ? '[PRUEBA] ' : '') +
     (urgentes ? '⚠️ ' + urgentes + ' cupo(s) por cortar hoy' : '🔔 ' + g.porVencer.length + ' cupo(s) próximos a vencer') +
     ' · ' + isoADMY_(hoy);
 
-  if (cfg.email) {
+  if (soloCanal === 'email' && !cfg.email) errores.push('Correo: no hay correo configurado.');
+  if (soloCanal === 'whatsapp' && !(cfg.wspTelefono && cfg.wspApiKey)) errores.push('WhatsApp: falta teléfono o API key.');
+  if (soloCanal === 'teams' && !cfg.teamsWebhook) errores.push('Teams: falta la URL del webhook.');
+  if (soloCanal === 'telegram' && !(cfg.telegramToken && cfg.telegramChatId)) errores.push('Telegram: falta token o chat.');
+
+  if (usar('email') && cfg.email) {
     try {
       MailApp.sendEmail({ to: cfg.email, subject: asunto, htmlBody: htmlAlerta_(g, hoy, cfg), body: textoAlerta_(g, hoy, false), name: APP_NAME });
       canales.push('email');
     } catch (e) { errores.push('Email: ' + e.message); }
   }
-  if (cfg.telegramToken && cfg.telegramChatId) {
+  if (usar('whatsapp') && cfg.wspTelefono && cfg.wspApiKey) {
+    try {
+      enviarWhatsApp_(cfg, (esPrueba ? '*[PRUEBA]*\n' : '') + textoAlerta_(g, hoy, 'wsp'));
+      canales.push('whatsapp');
+    } catch (e) { errores.push('WhatsApp: ' + e.message); }
+  }
+  if (usar('teams') && cfg.teamsWebhook) {
+    try {
+      enviarTeams_(cfg, g, hoy, esPrueba);
+      canales.push('teams');
+    } catch (e) { errores.push('Teams: ' + e.message); }
+  }
+  if (usar('telegram') && cfg.telegramToken && cfg.telegramChatId) {
     try {
       enviarTelegram_(cfg, (esPrueba ? '<b>[PRUEBA]</b>\n' : '') + textoAlerta_(g, hoy, true));
       canales.push('telegram');
@@ -926,8 +1013,9 @@ function escHtml_(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function textoAlerta_(g, hoy, html) {
-  const b = function (s) { return html ? '<b>' + escHtml_(s) + '</b>' : s.toUpperCase(); };
+function textoAlerta_(g, hoy, modo) {
+  const html = modo === true;
+  const b = function (s) { return html ? '<b>' + escHtml_(s) + '</b>' : modo === 'wsp' ? '*' + s + '*' : s.toUpperCase(); };
   const e = function (s) { return html ? escHtml_(s) : s; };
   const out = [b('Control de cupos · ' + isoADMY_(hoy)), ''];
   if (g.vencidos.length) {
@@ -988,6 +1076,135 @@ function htmlAlerta_(g, hoy, cfg) {
 
 function urlApp_() {
   return APP_URL;
+}
+
+// ════════════════════════════════════════════════════════════════
+// WHATSAPP (opcional, vía CallMeBot — gratis para uso personal)
+// ════════════════════════════════════════════════════════════════
+// Activación: agrega +34 644 51 95 23 a tus contactos y envíale por WhatsApp
+// "I allow callmebot to send me messages". Te responde con tu API key.
+
+function enviarWhatsApp_(cfg, texto) {
+  const MAX = 3500; // se parte en varios mensajes si es muy largo
+  const partes = [];
+  for (let i = 0; i < texto.length; i += MAX) partes.push(texto.slice(i, i + MAX));
+  partes.forEach(function (parte, i) {
+    if (i) Utilities.sleep(2500);
+    const url = 'https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(cfg.wspTelefono) +
+      '&text=' + encodeURIComponent(parte) + '&apikey=' + encodeURIComponent(cfg.wspApiKey);
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const body = res.getContentText() || '';
+    if (res.getResponseCode() >= 300 || /error|invalid|not valid|APIKey/i.test(body) && !/queued|sent/i.test(body)) {
+      throw new Error(body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || 'HTTP ' + res.getResponseCode());
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+// MICROSOFT TEAMS (opcional, webhook de Workflows / Power Automate)
+// ════════════════════════════════════════════════════════════════
+// Teams → canal o chat → ••• → Workflows → "Send webhook alerts to a channel"
+// (o "…to a chat") → copiar la URL que entrega.
+
+function enviarTeams_(cfg, g, hoy, esPrueba) {
+  const body = [{ type: 'TextBlock', size: 'Large', weight: 'Bolder', wrap: true,
+    text: (esPrueba ? '[PRUEBA] ' : '') + '💳 Control de cupos · ' + isoADMY_(hoy) }];
+  const seccion = function (titulo, color, lista, extra) {
+    if (!lista.length) return;
+    body.push({ type: 'TextBlock', text: titulo, weight: 'Bolder', color: color, spacing: 'Large', wrap: true });
+    lista.forEach(function (a) {
+      const tarjeta = [a.banco, a.tarjeta ? '****' + a.tarjeta : ''].filter(String).join(' ');
+      const facts = [
+        { title: 'Aumento', value: '+' + money_(a.monto) },
+        { title: 'Vigencia', value: isoADMY_(a.inicio) + ' → ' + isoADMY_(a.fin) }
+      ];
+      if (a.cupoBase) facts.push({ title: 'Vuelve a', value: money_(a.cupoBase) });
+      if (extra(a)) facts.push({ title: 'Estado', value: extra(a) });
+      body.push({ type: 'Container', separator: true, items: [
+        { type: 'TextBlock', text: a.cliente + (tarjeta ? ' · ' + tarjeta : ''), weight: 'Bolder', wrap: true },
+        { type: 'FactSet', facts: facts }
+      ] });
+    });
+  };
+  seccion('🔴 Vencidos — corte pendiente', 'Attention', g.vencidos, function (a) { return 'venció hace ' + (-a.diasRestantes) + ' día(s)'; });
+  seccion('🟠 Vencen hoy — hacer trámite con el banco', 'Warning', g.venceHoy, function () { return 'hoy'; });
+  seccion('🟡 Próximos a vencer', 'Accent', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' día(s)'; });
+  seccion('🟢 Inician hoy', 'Good', g.inicianHoy, function () { return ''; });
+  const payload = {
+    type: 'message',
+    attachments: [{
+      contentType: 'application/vnd.microsoft.card.adaptive',
+      content: {
+        $schema: 'http://adaptivecards.io/schemas/adaptive-card.json', type: 'AdaptiveCard', version: '1.4',
+        body: body,
+        actions: [{ type: 'Action.OpenUrl', title: 'Abrir la app', url: APP_URL }]
+      }
+    }]
+  };
+  const res = UrlFetchApp.fetch(cfg.teamsWebhook, {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+  });
+  const code = res.getResponseCode();
+  if (code < 200 || code >= 300) throw new Error('HTTP ' + code + ' ' + (res.getContentText() || '').slice(0, 200));
+}
+
+// ════════════════════════════════════════════════════════════════
+// INVITACIÓN DE CALENDARIO (.ics) — Outlook / Teams / Google / Apple
+// ════════════════════════════════════════════════════════════════
+// Al crear un aumento se envía al correo de alertas un archivo .ics con un
+// evento de día completo en la fecha de corte y dos recordatorios
+// (09:00 del día anterior y 09:00 del mismo día). Al abrirlo, Outlook/Teams
+// lo agrega al calendario. Reeditar un aumento reenvía el mismo evento (UID)
+// con los datos nuevos.
+
+function icsEsc_(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+
+function icsFecha_(iso) { return iso.replace(/-/g, ''); }
+
+function icsDiaSiguiente_(iso) {
+  const p = iso.split('-').map(Number);
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2] + 1));
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function enviarInvitacionIcs_(cfg, aumentos, esPrueba) {
+  const stamp = Utilities.formatDate(new Date(), 'UTC', "yyyyMMdd'T'HHmmss'Z'");
+  const lineas = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Control de Cupos//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+  aumentos.forEach(function (a) {
+    const fin = aISO_(a.FECHA_FIN), ini = aISO_(a.FECHA_INICIO);
+    lineas.push(
+      'BEGIN:VEVENT',
+      'UID:' + a.ID + '@control-cupos',
+      'DTSTAMP:' + stamp,
+      'SEQUENCE:' + Math.floor(Date.now() / 1000),
+      'DTSTART;VALUE=DATE:' + icsFecha_(fin),
+      'DTEND;VALUE=DATE:' + icsDiaSiguiente_(fin),
+      'SUMMARY:' + icsEsc_('⚠️ Cortar cupo: ' + a.CLIENTE + ' +' + money_(num_(a.MONTO))),
+      'DESCRIPTION:' + icsEsc_('Aumento temporal de cupo que vence hoy.\nCliente: ' + a.CLIENTE + '\nAumento: +' + money_(num_(a.MONTO)) +
+        '\nVigencia: ' + isoADMY_(ini) + ' al ' + isoADMY_(fin) + (a.MOTIVO ? '\nMotivo: ' + a.MOTIVO : '') + '\n\nApp: ' + APP_URL),
+      'TRANSP:TRANSPARENT',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Cortar cupo mañana', 'TRIGGER:-PT15H', 'END:VALARM',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Cortar cupo hoy', 'TRIGGER:PT9H', 'END:VALARM',
+      'END:VEVENT'
+    );
+  });
+  lineas.push('END:VCALENDAR');
+  // Líneas de máx. 75 octetos (RFC 5545) — plegado simple por caracteres
+  const ics = lineas.map(function (l) {
+    const out = []; while (l.length > 70) { out.push(l.slice(0, 70)); l = ' ' + l.slice(70); } out.push(l); return out.join('\r\n');
+  }).join('\r\n');
+
+  const uno = aumentos.length === 1 ? aumentos[0] : null;
+  const asunto = (esPrueba ? '[PRUEBA] ' : '') + '📅 ' + (uno
+    ? 'Corte de cupo ' + isoADMY_(aISO_(uno.FECHA_FIN)) + ': ' + uno.CLIENTE + ' +' + money_(num_(uno.MONTO))
+    : aumentos.length + ' cortes de cupo para agregar al calendario');
+  MailApp.sendEmail({
+    to: cfg.email, subject: asunto, name: APP_NAME,
+    body: 'Abre el archivo adjunto (corte-cupo.ics) para agregar ' + (uno ? 'el corte' : 'los cortes') + ' a tu calendario de Outlook / Teams / Google.',
+    htmlBody: '<p>Abre el archivo adjunto <b>corte-cupo.ics</b> para agregar ' + (uno ? 'el corte' : 'los ' + aumentos.length + ' cortes') +
+      ' a tu calendario (Outlook / Teams / Google). Incluye recordatorios a las 09:00 del día anterior y del mismo día.</p>',
+    attachments: [Utilities.newBlob(ics, 'text/calendar', 'corte-cupo.ics')]
+  });
 }
 
 // ════════════════════════════════════════════════════════════════

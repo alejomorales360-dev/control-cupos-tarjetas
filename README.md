@@ -76,18 +76,24 @@ Antes de guardar muestra una vista previa (nuevos, actualizados, errores por fil
 
 ## Configurar las alertas
 
-En la app → pestaña **Configuración**:
+En la app → **Configuración**. Cada canal tiene su botón **Probar** (guarda lo que haya en pantalla y envía un mensaje de prueba solo por ese canal).
 
-- **Correo(s)**: por defecto tu propia cuenta de Google. Puedes poner varios separados por coma.
-- **Días de aviso previo** y **hora** de la revisión diaria.
-- **Google Calendar**: al activarlo, cada aumento nuevo crea un evento de día completo "⚠️ Cortar cupo: …" en la fecha de fin, con recordatorio el día anterior. Al marcarlo como cortado el evento cambia a "✅ Cupo cortado".
-- **Telegram** (recomendado para tener la notificación en el celular):
-  1. En Telegram busca **@BotFather**, envía `/newbot` y sigue los pasos. Copia el *token*.
-  2. Pégalo en la app y guarda.
-  3. Abre tu bot nuevo y envíale cualquier mensaje (ej. "hola").
-  4. Pulsa **Detectar chat** y luego **Enviar alerta de prueba**.
+| Canal | Qué recibes | Cómo se activa |
+|---|---|---|
+| 📧 **Correo** | Resumen diario con tabla por estado | Escribe uno o varios correos (Gmail, Outlook, etc.). |
+| 💬 **WhatsApp** | Mensaje a tu propio WhatsApp | Gratis vía [CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/): agrega **+34 644 51 95 23**, envíale `I allow callmebot to send me messages`, pega la API key que te responde + tu número con código de país. |
+| 🟪 **Microsoft Teams** | Tarjeta en un canal o chat | Teams → canal/chat → **•••** → **Workflows** → plantilla *“Send webhook alerts to a channel”* (o *“…to a chat”*) → pega la URL que entrega. |
+| 📅 **Outlook / Teams calendario** | Invitación `.ics` por correo al crear cada aumento (evento de día completo en la fecha de corte, recordatorios 09:00 del día anterior y del mismo día) | Marca la casilla. Al importar desde Excel se envía un solo correo con todos los eventos. |
+| 📅 **Google Calendar** | Evento creado directamente en el calendario de la cuenta del proyecto | Marca la casilla. |
+| ✈️ **Telegram** | Mensaje de un bot propio | @BotFather → `/newbot` → token → escribirle al bot → **Detectar chat**. |
 
-Usa **Revisar vencimientos ahora** para forzar la revisión sin esperar al día siguiente.
+Las claves (API key de WhatsApp, URL de Teams, token de Telegram) se guardan en las *Script Properties* y nunca vuelven a la pantalla.
+
+**Cuota de correos:** una cuenta Gmail gratuita puede enviar ~100 correos al día desde Apps Script (la app muestra cuántos quedan). El resumen diario usa 1; cada invitación `.ics` usa 1.
+
+## Base de datos
+
+Por defecto `setup()` crea una planilla nueva. Para usar una propia: **Configuración → Base de datos** → pega la URL de la planilla → **Usar esta planilla**. Se crean en ella las hojas `CLIENTES`, `AUMENTOS` e `HISTORIAL` (las demás hojas no se tocan). La planilla debe ser de la misma cuenta de Google que el proyecto de Apps Script.
 
 ## Seguridad y acceso (login)
 
