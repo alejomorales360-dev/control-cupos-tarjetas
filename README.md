@@ -40,9 +40,22 @@ La interfaz llama a la API con `fetch` POST (`Content-Type: text/plain`, para ev
 | Vencido · cortar | Ya pasó la fecha de fin y no está marcado como cortado (alerta todos los días) |
 | Cortado / Anulado | Cerrado; ya no genera alertas |
 
-## Instalación (una sola vez, ~5 minutos)
+## Instalación (una sola vez)
 
-### Opción A — Sin instalar nada (copiar y pegar)
+1. Abre tu planilla de Google Sheets → **Extensiones → Apps Script** (así el script queda vinculado a ella).
+   *Alternativa:* un proyecto suelto en <https://script.google.com>, pegando la URL de la planilla en la constante `PLANILLA_URL` de `Codigo.gs`.
+2. Reemplaza el contenido de `Código.gs` por [`Codigo.gs`](Codigo.gs). ⚙️ *Configuración del proyecto* → mostrar `appsscript.json` y pega [`appsscript.json`](appsscript.json) (ajusta `timeZone`).
+3. Elige la función **`crearBaseDeDatos`** → **▶ Ejecutar** → acepta los permisos. Crea en la planilla:
+   - Hojas `CLIENTES`, `AUMENTOS`, `HISTORIAL`, `USUARIOS`, `CONFIG`, `SESIONES` con encabezados, notas explicativas en cada columna, anchos, formatos, listas desplegables (SI/NO, ADMIN/OPERADOR, ACTIVO/CORTADO/ANULADO) y colores (en AUMENTOS: rojo = vencido sin cortar, naranjo = vence hoy).
+   - `CONFIG` con todos los ajustes y valores por defecto (correo de alertas = tu cuenta).
+   - Usuario **`admin`** con clave aleatoria → aparece en el **Registro de ejecución**.
+   - Disparador diario de alertas.
+
+   Se puede ejecutar de nuevo cuando quieras: **nunca borra datos**, solo agrega lo que falte.
+4. **Implementar → Nueva implementación → Aplicación web** · *Ejecutar como:* Yo · *Quién tiene acceso:* Cualquier persona. Copia la URL `/exec` en `API_URL_DEFECTO` de `site/index.html` (o úsala desde el enlace **Servidor** del login).
+5. Para cambios futuros de `Codigo.gs`: **Gestionar implementaciones → ✏️ → Nueva versión** (la URL no cambia).
+
+## Opción A — Sin instalar nada (copiar y pegar)
 1. Entra a <https://script.google.com> → **Nuevo proyecto**. Ponle nombre, p. ej. *Control de Cupos*.
 2. Reemplaza el contenido de `Código.gs` por el de [`Codigo.gs`](Codigo.gs).
 3. La interfaz no va en Apps Script: está en [`site/index.html`](site/index.html) y la publica GitHub Pages.

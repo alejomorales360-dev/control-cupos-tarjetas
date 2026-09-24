@@ -77,22 +77,162 @@ const TRIGGER_FN = 'revisarVencimientos';
 // INSTALACIÓN
 // ════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════
+// CREAR LA BASE DE DATOS  ← ejecutar desde el editor
+// ════════════════════════════════════════════════════════════════
+//
+// Si el script NO está creado desde la planilla (Extensiones → Apps Script),
+// pega aquí la URL de tu planilla antes de ejecutar crearBaseDeDatos():
+const PLANILLA_URL = '';
+
+// Descripción de cada columna (aparece como nota al pasar el mouse por el encabezado)
+const NOTAS_COLUMNAS = {
+  CLIENTES: {
+    ID: 'Identificador interno (lo genera la app, no editar)', NOMBRE: 'Nombre del titular de la tarjeta',
+    DOCUMENTO: 'Cédula / RUT / documento (opcional)', BANCO: 'Banco emisor', TARJETA_ULT4: 'Solo los últimos 4 dígitos. Nunca el número completo',
+    CUPO_BASE: 'Cupo fijo en USD (al que vuelve cuando vence un aumento)', EMAIL: 'Correo del cliente (opcional)', TELEFONO: 'Teléfono del cliente (opcional)',
+    NOTAS: 'Observaciones', ACTIVO: 'SI / NO', CREADO: 'Fecha de alta'
+  },
+  AUMENTOS: {
+    ID: 'Identificador interno (lo genera la app, no editar)', ID_CLIENTE: 'ID del cliente en la hoja CLIENTES', CLIENTE: 'Nombre del cliente (copia)',
+    MONTO: 'Monto del aumento temporal en USD', FECHA_INICIO: 'Desde (dd-mm-aaaa)', FECHA_FIN: 'Hasta: fecha en que hay que cortar el cupo con el banco',
+    MOTIVO: 'Motivo o N° de solicitud', ESTADO: 'ACTIVO = pendiente de corte · CORTADO = ya se hizo el trámite · ANULADO = no se aplicó',
+    FECHA_CORTE: 'Cuándo se marcó como cortado/anulado', NOTA_CORTE: 'N° de trámite del banco u observación del cierre',
+    ULTIMO_AVISO: 'Última vez que se envió alerta por este aumento', EVENTO_CALENDAR: 'ID del evento de Google Calendar (interno)', CREADO: 'Fecha de registro'
+  },
+  HISTORIAL: { FECHA: 'Fecha y hora', ACCION: 'Qué se hizo', DETALLE: 'Detalle de la acción', USUARIO: 'Usuario de la app que lo hizo' },
+  USUARIOS: {
+    USUARIO: 'Nombre de usuario para entrar (minúsculas)', NOMBRE: 'Nombre visible', ROL: 'ADMIN = todo · OPERADOR = solo clientes y aumentos',
+    ACTIVO: 'SI / NO (NO bloquea el acceso y cierra sus sesiones)', HASH: 'Clave cifrada. NO editar', SAL: 'Parte del cifrado. NO editar',
+    CLAVE_NUEVA: 'Para resetear una clave: escribe aquí la clave nueva. Se usa en el próximo ingreso y se borra sola',
+    CREADO: 'Fecha de alta', ULTIMO_ACCESO: 'Último ingreso'
+  },
+  CONFIG: { CLAVE: 'Nombre del ajuste (no editar)', VALOR: 'Valor del ajuste (editable; SI/NO en las opciones)', DESCRIPCION: 'Para qué sirve' },
+  SESIONES: { TOKEN_HASH: 'Sesión cifrada. Borrar la fila cierra esa sesión', USUARIO: 'Usuario de la sesión', VENCE: 'Vencimiento (milisegundos)', CREADO: 'Inicio de sesión' }
+};
+
+const ANCHOS_COLUMNAS = {
+  CLIENTES:  [110, 220, 120, 130, 110, 110, 180, 120, 220, 70, 130],
+  AUMENTOS:  [110, 110, 200, 100, 105, 105, 200, 95, 105, 200, 105, 120, 130],
+  HISTORIAL: [140, 160, 420, 140],
+  USUARIOS:  [140, 180, 100, 70, 200, 120, 160, 130, 130],
+  CONFIG:    [170, 320, 460],
+  SESIONES:  [220, 140, 130, 130]
+};
+
+const COLORES_PESTANA = { CLIENTES: '#2563eb', AUMENTOS: '#16a34a', HISTORIAL: '#6b7280', USUARIOS: '#9333ea', CONFIG: '#ea580c', SESIONES: '#9ca3af' };
+
 /**
- * Ejecutar UNA VEZ desde el editor de Apps Script.
- * Crea la planilla (si no existe), las hojas y el disparador diario.
+ * Crea (o completa) toda la base de datos en la planilla:
+ *   - Hojas CLIENTES, AUMENTOS, HISTORIAL, USUARIOS, CONFIG y SESIONES con
+ *     encabezados, notas explicativas, anchos, formatos y listas desplegables.
+ *   - CONFIG con todos los ajustes y valores por defecto (correo = tu cuenta).
+ *   - Usuario "admin" con clave aleatoria (si aún no hay usuarios): la clave
+ *     aparece en el Registro de ejecución.
+ *   - Disparador diario de alertas.
+ * Es seguro ejecutarla varias veces: nunca borra datos, solo agrega lo que falte.
  */
-function setup() {
+function crearBaseDeDatos() {
   exigirDueno_();
-  const ss = getSS_();
+  const ss = planillaDestino_();
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
+  CACHE_ = {};
+
   ensureSheets_(ss);
+  darFormatoHojas_(ss);
+  ['Hoja 1', 'Hoja1', 'Sheet1'].forEach(function (n) {
+    const h = ss.getSheetByName(n);
+    if (h && h.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(h);
+  });
+  // Orden de pestañas
+  Object.keys(HEADERS).forEach(function (n, i) { ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1); });
+  ss.setActiveSheet(ss.getSheetByName(SH_CLIENTES));
+
   migrarPropiedades_();
-  const cfg = leerConfigHoja_();
-  if (!cfg.EMAIL_ALERTAS) setConfigHoja_({ EMAIL_ALERTAS: Session.getEffectiveUser().getEmail() });
+  if (!leerConfigHoja_().EMAIL_ALERTAS) setConfigHoja_({ EMAIL_ALERTAS: Session.getEffectiveUser().getEmail() });
   instalarTrigger_(getConfig_().hora);
-  log_('SETUP', 'Planilla: ' + ss.getUrl());
-  Logger.log('Listo. Planilla: ' + ss.getUrl());
-  Logger.log('Alertas a: ' + leerConfigHoja_().EMAIL_ALERTAS);
+  log_('BASE_CREADA', ss.getName() + ' · ' + ss.getUrl());
+
+  Logger.log('✅ Base de datos lista en: ' + ss.getName());
+  Logger.log('   ' + ss.getUrl());
+  Logger.log('   Hojas: ' + Object.keys(HEADERS).join(', '));
+  Logger.log('   Alertas a: ' + leerConfigHoja_().EMAIL_ALERTAS + ' · revisión diaria a las ' + getConfig_().hora + ':00');
   if (!leerUsuarios_().length) generarClaveAcceso();
+  else Logger.log('   Usuarios existentes: ' + leerUsuarios_().map(function (u) { return u.USUARIO; }).join(', ') + ' (tus claves no se tocaron)');
+}
+
+/** Alias: versiones anteriores usaban setup(). */
+function setup() {
+  crearBaseDeDatos();
+}
+
+/** Planilla donde crear la base: la del script, PLANILLA_URL, o la ya configurada. */
+function planillaDestino_() {
+  let ss = null;
+  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) {}
+  if (!ss && PLANILLA_URL) {
+    const m = String(PLANILLA_URL).match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(PLANILLA_URL).match(/^([a-zA-Z0-9_-]{20,})$/);
+    if (!m) throw new Error('PLANILLA_URL no es una URL válida de Google Sheets.');
+    ss = SpreadsheetApp.openById(m[1]);
+  }
+  if (!ss) {
+    const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+    if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) {} }
+  }
+  if (!ss) throw new Error('No sé en qué planilla crear la base. Pega la URL de tu planilla en la constante PLANILLA_URL (arriba de crearBaseDeDatos) y vuelve a ejecutar.');
+  return ss;
+}
+
+function darFormatoHojas_(ss) {
+  const lista = function (valores) {
+    return SpreadsheetApp.newDataValidation().requireValueInList(valores, true).setAllowInvalid(false).build();
+  };
+  const FILAS = 1000;
+  Object.keys(HEADERS).forEach(function (name) {
+    const sh = ss.getSheetByName(name);
+    const h = HEADERS[name];
+    const head = sh.getRange(1, 1, 1, h.length);
+    head.setValues([h]).setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff').setVerticalAlignment('middle');
+    sh.setFrozenRows(1);
+    sh.setRowHeight(1, 28);
+    head.setNotes([h.map(function (k) { return (NOTAS_COLUMNAS[name] || {})[k] || ''; })]);
+    (ANCHOS_COLUMNAS[name] || []).forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+    if (COLORES_PESTANA[name]) sh.setTabColor(COLORES_PESTANA[name]);
+
+    const col = function (k) { return sh.getRange(2, h.indexOf(k) + 1, FILAS, 1); };
+    h.forEach(function (k) {
+      if (/^FECHA_|^ULTIMO_AVISO$/.test(k)) col(k).setNumberFormat('dd-mm-yyyy');
+      else if (k === 'CREADO' || k === 'ULTIMO_ACCESO' || (name === SH_HISTORIAL && k === 'FECHA')) col(k).setNumberFormat('dd-mm-yyyy hh:mm');
+      else if (k === 'MONTO' || k === 'CUPO_BASE') col(k).setNumberFormat('#,##0.00');
+      else if (['TARJETA_ULT4', 'DOCUMENTO', 'TELEFONO', 'HASH', 'SAL', 'CLAVE_NUEVA', 'TOKEN_HASH', 'USUARIO', 'CLAVE', 'VALOR'].indexOf(k) >= 0) col(k).setNumberFormat('@');
+    });
+    if (name === SH_CLIENTES || name === SH_USUARIOS) col('ACTIVO').setDataValidation(lista(['SI', 'NO']));
+    if (name === SH_AUMENTOS) col('ESTADO').setDataValidation(lista([ESTADO_ACTIVO, ESTADO_CORTADO, ESTADO_ANULADO]));
+    if (name === SH_USUARIOS) {
+      col('ROL').setDataValidation(lista(['ADMIN', 'OPERADOR']));
+      sh.getRange(2, h.indexOf('HASH') + 1, FILAS, 2).setFontColor('#9ca3af');
+    }
+    if (name === SH_CONFIG) {
+      sh.getRange(2, 1, FILAS, 1).setFontWeight('bold');
+      sh.getRange(2, 3, FILAS, 1).setFontColor('#6b7280').setWrap(true);
+      leer_(SH_CONFIG).forEach(function (r) {
+        if (['ICS_INVITACION', 'USAR_CALENDAR'].indexOf(String(r.CLAVE)) >= 0) sh.getRange(r._row, 2).setDataValidation(lista(['SI', 'NO']));
+      });
+    }
+    if (name === SH_AUMENTOS) {
+      // Resaltar vencidos sin cortar (rojo) y que vencen hoy (naranjo)
+      const rango = sh.getRange(2, 1, FILAS, h.length);
+      const cFin = String.fromCharCode(65 + h.indexOf('FECHA_FIN')), cEst = String.fromCharCode(65 + h.indexOf('ESTADO'));
+      sh.setConditionalFormatRules([
+        SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND($' + cEst + '2="ACTIVO",$' + cFin + '2<>"",$' + cFin + '2<TODAY())')
+          .setBackground('#fee2e2').setRanges([rango]).build(),
+        SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND($' + cEst + '2="ACTIVO",$' + cFin + '2=TODAY())')
+          .setBackground('#ffedd5').setRanges([rango]).build(),
+        SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR($' + cEst + '2="CORTADO",$' + cEst + '2="ANULADO")')
+          .setFontColor('#9ca3af').setRanges([rango]).build()
+      ]);
+    }
+  });
 }
 
 function getSS_() {
@@ -100,6 +240,13 @@ function getSS_() {
   let id = props.getProperty('SPREADSHEET_ID');
   if (id) {
     try { return SpreadsheetApp.openById(id); } catch (e) { /* se recrea abajo */ }
+  }
+  let activa = null;
+  try { activa = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) {}
+  if (activa) {
+    props.setProperty('SPREADSHEET_ID', activa.getId());
+    ensureSheets_(activa);
+    return activa;
   }
   const ss = SpreadsheetApp.create('Control de Cupos de Tarjetas');
   props.setProperty('SPREADSHEET_ID', ss.getId());
