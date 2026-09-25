@@ -40,7 +40,8 @@ const CONFIG_DEF = [
   ['DIAS_AVISO',     '3',  'Días de anticipación para el aviso previo'],
   ['HORA_ALERTA',    '8',  'Hora (0-23) de la revisión diaria'],
   ['ICS_INVITACION', 'SI', 'SI = enviar invitación de calendario (Outlook/Teams) al crear cada aumento y cancelarla al finalizarlo'],
-  ['TEAMS_EMAIL',    '',   'Opcional: correo de un canal de Teams (canal → ••• → Obtener dirección de correo electrónico)']
+  ['TEAMS_EMAIL',    '',   'Opcional: correo de un canal de Teams (canal → ••• → Obtener dirección de correo electrónico)'],
+  ['ENLACES_CORREO', 'SI', 'SI = el resumen diario incluye botones para abrir la app y finalizar cada aumento (NO = correo sin enlaces)']
 ];
 
 // Ajustes de versiones anteriores que ya no se usan (se quitan de la hoja CONFIG)
@@ -213,7 +214,7 @@ function darFormatoHojas_(ss) {
       sh.getRange(2, 1, FILAS, 1).setFontWeight('bold');
       sh.getRange(2, 3, FILAS, 1).setFontColor('#6b7280').setWrap(true);
       leer_(SH_CONFIG).forEach(function (r) {
-        if (String(r.CLAVE) === 'ICS_INVITACION') sh.getRange(r._row, 2).setDataValidation(lista(['SI', 'NO']));
+        if (['ICS_INVITACION', 'ENLACES_CORREO'].indexOf(String(r.CLAVE)) >= 0) sh.getRange(r._row, 2).setDataValidation(lista(['SI', 'NO']));
       });
     }
     if (name === SH_AUMENTOS) {
@@ -1166,7 +1167,7 @@ function leerConfigHoja_() {
   if (!CACHE_.config) {
     if (!CACHE_.migrado) migrarPropiedades_();
     const out = {};
-    CONFIG_DEF.forEach(function (d) { out[d[0]] = ''; });
+    CONFIG_DEF.forEach(function (d) { out[d[0]] = d[1]; });   // valor por defecto si la fila aún no existe
     leer_(SH_CONFIG).forEach(function (r) { out[String(r.CLAVE).trim()] = String(r.VALOR == null ? '' : r.VALOR).trim(); });
     CACHE_.config = out;
   }
@@ -1202,6 +1203,7 @@ function getConfig_() {
     diasAviso: Math.max(0, parseInt(p.DIAS_AVISO || '3', 10) || 0),
     hora: Math.min(23, Math.max(0, parseInt(p.HORA_ALERTA || '8', 10) || 0)),
     icsInvitacion: siNo_(p.ICS_INVITACION),
+    enlacesCorreo: siNo_(p.ENLACES_CORREO),
     teamsEmail: p.TEAMS_EMAIL || ''
   };
 }
@@ -1215,6 +1217,7 @@ function obtenerConfig(token) {
     diasAviso: c.diasAviso,
     hora: c.hora,
     icsInvitacion: c.icsInvitacion,
+    enlacesCorreo: c.enlacesCorreo,
     teamsEmail: c.teamsEmail,
     triggerActivo: trigger,
     planilla: (function () { try { const ss = getSS_(); return { nombre: ss.getName(), url: ss.getUrl() }; } catch (e) { return null; } })(),
@@ -1234,6 +1237,7 @@ function guardarConfig(token, cfg) {
   const hora = Math.min(23, Math.max(0, parseInt(cfg.hora, 10) || 0));
   v.HORA_ALERTA = String(hora);
   v.ICS_INVITACION = cfg.icsInvitacion ? 'SI' : 'NO';
+  if (cfg.enlacesCorreo !== undefined) v.ENLACES_CORREO = cfg.enlacesCorreo ? 'SI' : 'NO';
   const teams = String(cfg.teamsEmail || '').trim();
   if (teams && !correoOk(teams)) throw new Error('Correo del canal de Teams inválido: ' + teams);
   v.TEAMS_EMAIL = teams;
@@ -1334,7 +1338,7 @@ function enviarAlertas_(g, hoy, cfg, esPrueba, soloCanal) {
   const asunto = (esPrueba ? '[PRUEBA] ' : '') +
     'Control de Cupos: ' + (urgentes ? urgentes + ' aumento(s) por finalizar' : g.porVencer.length + ' aumento(s) proximos a vencer') +
     ' (' + isoADMY_(hoy) + ')';
-  const correo = { subject: asunto, htmlBody: htmlAlerta_(g, hoy, cfg), body: textoAlerta_(g, hoy), name: APP_NAME };
+  const correo = { subject: asunto, htmlBody: htmlAlerta_(g, hoy, cfg), body: textoAlerta_(g, hoy, cfg.enlacesCorreo), name: APP_NAME };
 
   if (soloCanal === 'email' && !cfg.email) errores.push('Correo: no hay correo configurado.');
   if (soloCanal === 'teams' && !cfg.teamsEmail) errores.push('Teams: falta el correo del canal.');
@@ -1364,7 +1368,7 @@ function escHtml_(s) {
 
 // Correos deliberadamente simples (sin emojis, botones ni enlaces): los filtros
 // anti-phishing corporativos suelen desviar correos externos con enlaces.
-function textoAlerta_(g, hoy) {
+function textoAlerta_(g, hoy, conEnlaces) {
   const out = ['CONTROL DE CUPOS - ' + isoADMY_(hoy), ''];
   const bloque = function (titulo, lista, extra) {
     if (!lista.length) return;
@@ -1377,34 +1381,81 @@ function textoAlerta_(g, hoy) {
   bloque('PROXIMOS A VENCER', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' dia(s)'; });
   bloque('INICIAN HOY', g.inicianHoy, function () { return ''; });
   out.push('Cuando hagas el tramite con el banco, marcalo como "Finalizado" en la app para dejar de recibir este aviso.');
+  if (conEnlaces) out.push('', 'Abrir Control de Cupos: ' + APP_URL);
   return out.join('\n');
 }
 
+// Diseño del resumen: tablas y estilos en línea (Outlook usa el motor de Word).
+// Sin emojis ni imágenes; los enlaces se pueden desactivar con ENLACES_CORREO = NO.
 function htmlAlerta_(g, hoy, cfg) {
-  const td = 'padding:6px 8px;border:1px solid #ddd';
-  const seccion = function (titulo, lista, extra) {
-    if (!lista.length) return '';
-    const filas = lista.map(function (a) {
-      const tarjeta = [a.banco, a.tarjeta ? '****' + a.tarjeta : ''].filter(String).join(' ');
-      return '<tr><td style="' + td + '"><b>' + escHtml_(a.cliente) + '</b>' + (tarjeta ? '<br>' + escHtml_(tarjeta) : '') + '</td>' +
-        '<td style="' + td + ';text-align:right">+' + money_(a.monto) + '</td>' +
-        '<td style="' + td + '">' + isoADMY_(a.inicio) + ' al <b>' + isoADMY_(a.fin) + '</b></td>' +
-        '<td style="' + td + ';text-align:right">' + (a.cupoBase ? money_(a.cupoBase) : '-') + '</td>' +
-        '<td style="' + td + '">' + escHtml_(extra(a)) + '</td></tr>';
-    }).join('');
-    return '<p style="margin:18px 0 6px"><b>' + titulo + '</b></p>' +
-      '<table style="border-collapse:collapse;font-size:14px">' +
-      '<tr style="background:#f2f2f2"><th style="' + td + '">Cliente</th><th style="' + td + '">Aumento</th><th style="' + td + '">Vigencia</th><th style="' + td + '">Cupo base</th><th style="' + td + '"></th></tr>' +
-      filas + '</table>';
+  const enlaces = cfg.enlacesCorreo;
+  const F = 'font-family:Segoe UI,Arial,sans-serif;';
+  const SECC = {
+    vencidos:  { titulo: 'Vencidos sin finalizar', sub: 'Ya paso la fecha de termino: hacer el tramite con el banco', color: '#b91c1c', fondo: '#fef2f2', chip: '#fee2e2' },
+    venceHoy:  { titulo: 'Vencen hoy', sub: 'Hacer el tramite con el banco hoy', color: '#c2410c', fondo: '#fff7ed', chip: '#ffedd5' },
+    porVencer: { titulo: 'Proximos a vencer', sub: 'Terminan dentro de los proximos ' + cfg.diasAviso + ' dia(s)', color: '#a16207', fondo: '#fefce8', chip: '#fef9c3' },
+    inicianHoy:{ titulo: 'Inician hoy', sub: 'Aumentos que comienzan hoy', color: '#15803d', fondo: '#f0fdf4', chip: '#dcfce7' }
   };
-  return '<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">' +
-    '<p><b>Control de Cupos - ' + isoADMY_(hoy) + '</b></p>' +
-    seccion('Vencidos - sin finalizar', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; }) +
-    seccion('Vencen hoy - hacer tramite con el banco', g.venceHoy, function () { return 'hoy'; }) +
-    seccion('Proximos a vencer (' + cfg.diasAviso + ' dias)', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' dia(s)'; }) +
-    seccion('Inician hoy', g.inicianHoy, function () { return ''; }) +
-    '<p style="margin-top:18px">Cuando hagas el tramite con el banco, marcalo como <b>Finalizado</b> en la app para dejar de recibir este aviso.</p>' +
-    '</div>';
+  const etiqueta = function (k, a) {
+    if (k === 'vencidos') return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)';
+    if (k === 'venceHoy') return 'vence HOY';
+    if (k === 'porVencer') return 'faltan ' + a.diasRestantes + ' dia(s)';
+    return 'desde hoy';
+  };
+  const th = 'padding:8px 10px;background:#f3f4f6;color:#374151;font-size:12px;text-align:left;border-bottom:1px solid #e5e7eb;' + F;
+  const seccion = function (k) {
+    const lista = g[k], S = SECC[k];
+    if (!lista.length) return '';
+    const filas = lista.map(function (a, i) {
+      const tarjeta = [a.banco, a.tarjeta ? '****' + a.tarjeta : ''].filter(String).join(' ');
+      const td = 'padding:10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;background:' + (i % 2 ? '#fafafa' : '#ffffff') + ';' + F;
+      const boton = enlaces && k !== 'inicianHoy'
+        ? '<a href="' + APP_URL + '?finalizar=' + encodeURIComponent(a.id) + '" style="display:inline-block;background:#1f2937;color:#ffffff;text-decoration:none;font-weight:bold;font-size:13px;padding:7px 14px;border-radius:6px;' + F + '">Finalizar</a>'
+        : '';
+      return '<tr>' +
+        '<td style="' + td + '"><b>' + escHtml_(a.cliente) + '</b>' + (tarjeta ? '<br><span style="color:#6b7280;font-size:12px">' + escHtml_(tarjeta) + '</span>' : '') + '</td>' +
+        '<td style="' + td + 'text-align:right;white-space:nowrap"><b style="color:' + S.color + '">+' + money_(a.monto) + '</b></td>' +
+        '<td style="' + td + 'white-space:nowrap">' + isoADMY_(a.inicio) + ' al <b>' + isoADMY_(a.fin) + '</b></td>' +
+        '<td style="' + td + 'text-align:right;white-space:nowrap;color:#4b5563">' + (a.cupoBase ? money_(a.cupoBase) : '-') + '</td>' +
+        '<td style="' + td + 'white-space:nowrap"><span style="background:' + S.chip + ';color:' + S.color + ';font-weight:bold;font-size:12px;padding:3px 9px;border-radius:10px">' + etiqueta(k, a) + '</span></td>' +
+        (enlaces ? '<td style="' + td + 'text-align:right">' + boton + '</td>' : '') +
+        '</tr>';
+    }).join('');
+    return '<tr><td style="padding:18px 24px 0 24px">' +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb">' +
+      '<tr><td colspan="' + (enlaces ? 6 : 5) + '" style="background:' + S.fondo + ';border-left:5px solid ' + S.color + ';padding:10px 12px;' + F + '">' +
+      '<span style="font-size:15px;font-weight:bold;color:' + S.color + '">' + S.titulo + ' (' + lista.length + ')</span>' +
+      '<br><span style="font-size:12px;color:#4b5563">' + S.sub + '</span></td></tr>' +
+      '<tr><td style="' + th + '">Cliente</td><td style="' + th + 'text-align:right">Aumento</td><td style="' + th + '">Vigencia</td>' +
+      '<td style="' + th + 'text-align:right">Cupo base</td><td style="' + th + '">Estado</td>' + (enlaces ? '<td style="' + th + '"></td>' : '') + '</tr>' +
+      filas + '</table></td></tr>';
+  };
+  const totalMonto = g.vencidos.concat(g.venceHoy, g.porVencer).reduce(function (s, a) { return s + a.monto; }, 0);
+  const pendientes = g.vencidos.length + g.venceHoy.length + g.porVencer.length;
+  return '<div style="background:#f3f4f6;padding:16px 0;' + F + '">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-collapse:collapse">' +
+    // Encabezado
+    '<tr><td style="background:#1f2937;padding:18px 24px;' + F + '">' +
+      '<span style="color:#ffffff;font-size:20px;font-weight:bold">Control de Cupos</span>' +
+      '<span style="color:#9ca3af;font-size:13px">&nbsp;&nbsp;Resumen del ' + isoADMY_(hoy) + '</span></td></tr>' +
+    // Resumen en cifras
+    '<tr><td style="padding:16px 24px 0 24px">' +
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>' +
+      '<td style="background:#fef2f2;border:1px solid #fecaca;padding:10px 12px;' + F + '"><span style="font-size:22px;font-weight:bold;color:#b91c1c">' + g.vencidos.length + '</span><br><span style="font-size:12px;color:#4b5563">Vencidos</span></td>' +
+      '<td style="width:8px"></td>' +
+      '<td style="background:#fff7ed;border:1px solid #fed7aa;padding:10px 12px;' + F + '"><span style="font-size:22px;font-weight:bold;color:#c2410c">' + g.venceHoy.length + '</span><br><span style="font-size:12px;color:#4b5563">Vencen hoy</span></td>' +
+      '<td style="width:8px"></td>' +
+      '<td style="background:#fefce8;border:1px solid #fde68a;padding:10px 12px;' + F + '"><span style="font-size:22px;font-weight:bold;color:#a16207">' + g.porVencer.length + '</span><br><span style="font-size:12px;color:#4b5563">Proximos</span></td>' +
+      '<td style="width:8px"></td>' +
+      '<td style="background:#eff6ff;border:1px solid #bfdbfe;padding:10px 12px;' + F + '"><span style="font-size:22px;font-weight:bold;color:#1d4ed8">' + money_(totalMonto) + '</span><br><span style="font-size:12px;color:#4b5563">Monto por finalizar (' + pendientes + ')</span></td>' +
+      '</tr></table></td></tr>' +
+    seccion('vencidos') + seccion('venceHoy') + seccion('porVencer') + seccion('inicianHoy') +
+    // Pie
+    '<tr><td style="padding:20px 24px 22px 24px;font-size:13px;color:#4b5563;' + F + '">' +
+      'Cuando hagas el tramite con el banco, marcalo como <b>Finalizado</b> en la app para dejar de recibir este aviso.' +
+      (enlaces ? '<br><br><a href="' + APP_URL + '" style="color:#1d4ed8;font-weight:bold;text-decoration:none">Abrir Control de Cupos</a>' : '') +
+    '</td></tr>' +
+    '</table></div>';
 }
 
 // ════════════════════════════════════════════════════════════════

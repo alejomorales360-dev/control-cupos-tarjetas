@@ -340,6 +340,8 @@
               </div>
               <div class="hint">Todos reciben el resumen diario y las invitaciones de calendario. <span id="cfg-cuota"></span></div>
             </div>
+            <div class="field check"><input type="checkbox" id="cfg-enlaces"><label for="cfg-enlaces" style="margin:0">Incluir botones <b>Finalizar</b> y enlace a la app en el resumen</label></div>
+            <div class="hint" style="margin:-6px 0 10px 26px">Si algún día los correos dejan de llegar (filtros de la empresa), desmárcalo.</div>
             <button type="button" class="small" onclick="probar('email', this)">Probar correo</button>
           </div>
 
@@ -701,6 +703,22 @@
   });
 
   // ── carga ─────────────────────────────────────────────
+  // Enlace directo desde el correo: ?finalizar=<id del aumento>
+  var PENDIENTE_FINALIZAR = null;
+  try {
+    PENDIENTE_FINALIZAR = new URLSearchParams(location.search).get('finalizar');
+    if (PENDIENTE_FINALIZAR) history.replaceState(null, '', location.pathname);
+  } catch (e) {}
+  function atenderEnlace() {
+    if (!PENDIENTE_FINALIZAR || !DATA.aumentos) return;
+    var id = PENDIENTE_FINALIZAR; PENDIENTE_FINALIZAR = null;
+    var a = DATA.aumentos.filter(function (x) { return x.id === id; })[0];
+    document.querySelector('nav button[data-tab=aumentos]').click();
+    if (!a) { toast('No encontré ese aumento (puede haber sido eliminado).', true); return; }
+    if (a.estado !== 'ACTIVO') { toast('El aumento de ' + a.cliente + ' ya está ' + (ESTADOS[a.estadoCalc] || a.estado).toLowerCase() + '.'); return; }
+    abrirCierre(id, 'finalizar');
+  }
+
   function cargar() {
     call('obtenerDatos', [], function (d) {
       // Compatibilidad: si el servidor aún usa el estado antiguo CORTADO
@@ -720,6 +738,7 @@
       $('bancos').innerHTML = Object.keys(bancos).map(function (b) { return '<option value="' + esc(b) + '">'; }).join('');
       renderPanel(); renderAumentos(); renderClientes();
       if ($('tab-reportes').classList.contains('active')) renderReporte();
+      atenderEnlace();
       precargarAdmin(!$('tab-config').classList.contains('active'));
     });
   }
@@ -1271,6 +1290,7 @@
     $('cfg-dias').value = c.diasAviso;
     $('cfg-hora').value = c.hora;
     $('cfg-ics').checked = c.icsInvitacion;
+    $('cfg-enlaces').checked = c.enlacesCorreo !== false;
     $('cfg-teams-email').value = c.teamsEmail || '';
     $('cfg-tz').textContent = 'Zona horaria: ' + c.zonaHoraria;
     $('cfg-cuota').textContent = c.cuotaCorreo != null ? 'Correos disponibles hoy: ' + c.cuotaCorreo + '.' : '';
@@ -1365,7 +1385,7 @@
   function leerConfig() {
     return {
       email: correosParaGuardar(), diasAviso: $('cfg-dias').value, hora: $('cfg-hora').value,
-      icsInvitacion: $('cfg-ics').checked, teamsEmail: correoTeams()
+      icsInvitacion: $('cfg-ics').checked, enlacesCorreo: $('cfg-enlaces').checked, teamsEmail: correoTeams()
     };
   }
   // Acepta lo que copia Teams: "Nombre - Canal <xxxx@emea.teams.ms>"
