@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#1f2937">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💳</text></svg>">
+<meta name="theme-color" content="#0f1b2d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e6e8c'/%3E%3Crect x='6.5' y='9.5' width='19' height='13' rx='2' fill='none' stroke='white' stroke-width='1.8'/%3E%3Cpath d='M6.5 13.5h19M10 19h5' stroke='white' stroke-width='1.8'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <title>Control de Cupos</title>
 <style>
   :root {
@@ -169,19 +171,153 @@
   .correo-vacio { color: var(--muted); font-size: 13px; }
   .agregar-correo { display: flex; gap: 6px; }
   .agregar-correo input { flex: 1; min-width: 0; }
+
+  /* ═════════ Tema "libro contable": IBM Plex, azul petróleo, papel ═════════ */
+  :root {
+    --bg: #f4f3ef; --card: #ffffff; --text: #16202e; --muted: #667085; --line: #e4e1d9; --line2: #efece6;
+    --ink: #0f1b2d; --accent: #0e6e8c; --accent-bg: #e3f1f5;
+    --primary: #0f1b2d; --primary-text: #fff;
+    --red: #a3261f; --red-bg: #f8e6e4; --orange: #b4530f; --orange-bg: #fbeee2;
+    --yellow: #8a6a06; --yellow-bg: #f7f0d7; --green: #1e6b45; --green-bg: #e3f1e8;
+    --blue: #1f5f99; --blue-bg: #e4edf6; --gray-bg: #f1efea;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --radius: 6px;
+  }
+  body { font-family: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size: 14.5px; -webkit-font-smoothing: antialiased; }
+  .ic { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; flex: none; }
+  button .ic { margin-right: 2px; }
+
+  /* Encabezado + pestañas */
+  header { background: var(--ink); padding: 14px 24px 10px; border-bottom: 0; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .marca { width: 34px; height: 34px; flex: none; display: block; }
+  header h1 { font-size: 17px; font-weight: 600; letter-spacing: .01em; }
+  header .hoy { font-size: 12.5px; color: #9fb0c3; opacity: 1; margin-top: 1px; }
+  button.ghost { background: transparent; color: #d7e0ea; border-color: #2c3b52; }
+  button.ghost:hover { background: #1b2a41; color: #fff; }
+  nav { background: var(--ink); padding: 0 24px; gap: 2px; border-bottom: 1px solid #22324a; }
+  nav button { color: #9fb0c3; border-radius: 0; padding: 12px 14px 11px; font-weight: 500; border-bottom: 3px solid transparent; }
+  nav button:hover { color: #fff; }
+  nav button.active { background: transparent; color: #fff; font-weight: 600; border-bottom-color: #3fb3d6; }
+  main { max-width: 1160px; padding: 22px 24px 40px; }
+
+  /* Indicadores: cinta contable */
+  .cards { gap: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 22px; }
+  .stat { border: 0; border-radius: 0; border-left: 1px solid var(--line); padding: 14px 18px 16px; position: relative; background: var(--card); }
+  .stat:first-child { border-left: 0; }
+  .stat::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--line); }
+  .stat.red::before { background: var(--red); } .stat.orange::before { background: var(--orange); } .stat.yellow::before { background: #c9a227; }
+  .stat.green::before { background: var(--green); } .stat.blue::before { background: var(--blue); }
+  .stat .l { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; color: var(--muted); }
+  .stat .n { font-family: var(--mono); font-size: 30px; font-weight: 600; line-height: 1.15; margin-top: 6px; }
+  .stat .v { font-family: var(--mono); font-size: 19px; font-weight: 600; margin-top: 6px; }
+  .stat .v + .l, .stat .n + .l { margin-top: 4px; }
+  .stat.red, .stat.orange, .stat.yellow, .stat.green, .stat.blue { border-color: var(--line); }
+  .stat.clic { cursor: pointer; transition: background .12s; }
+  .stat.clic:hover { background: #faf9f6; }
+  @media (max-width: 720px) {
+    .cards { grid-template-columns: 1fr 1fr; }
+    .stat { border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+    .stat:nth-child(odd) { border-left: 0; }
+    .stat:nth-child(-n+2) { border-top: 0; }
+    .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+    .stat .n { font-size: 26px; }
+    header { padding: 12px 16px 8px; } nav { padding: 0 12px; } main { padding: 16px 12px 32px; }
+    table.resp tr { margin: 10px 12px; width: auto; border-radius: var(--radius); background: var(--card); }
+    table.resp td { font-family: inherit; }
+    table.resp td.num { font-family: var(--mono); }
+    table.resp td[data-l]:not([data-l=""])::before { font-family: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    table.resp tbody tr:hover td { background: transparent; }
+    .panel table th:first-child, .panel table td:first-child { padding-left: 8px; }
+  }
+
+  /* Paneles */
+  .panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 0; margin-bottom: 20px; overflow: hidden; }
+  .panel > h2 { font-size: 14px; font-weight: 600; letter-spacing: .01em; margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--line); background: #fbfaf7; }
+  .panel > *:not(h2):not(table):not(div[style*="overflow"]) { margin-left: 18px; margin-right: 18px; }
+  .panel > .toolbar { margin-top: 14px; }
+  .panel > table, .panel > div[style*="overflow"] { margin: 0; }
+  .panel > form { padding: 14px 0 16px; }
+  .panel > p:first-of-type, .panel > .hint:first-of-type, .panel > .chips { margin-top: 14px; }
+  .panel > *:last-child:not(table) { margin-bottom: 16px; }
+  .panel table th:first-child, .panel table td:first-child { padding-left: 18px; }
+  .panel table th:last-child, .panel table td:last-child { padding-right: 18px; }
+
+  /* Tablas */
+  th { font-size: 11px; letter-spacing: .07em; font-weight: 600; color: var(--muted); background: #fbfaf7; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 11px 10px; border-bottom: 1px solid var(--line2); }
+  tbody tr:hover td { background: #faf9f6; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num, .m-base, .m-actual, .aum-chip, .dias, .preview b, table.reporte td { font-variant-numeric: tabular-nums; }
+  td.num, .m-actual, .aum-chip, .dias, table.reporte td[style*="right"], table.reporte td[style*="center"] { font-family: var(--mono); font-size: 13.5px; }
+  .sub { color: var(--muted); }
+
+  /* Etiquetas de estado: sobrias, con punto */
+  .badge { border-radius: 4px; padding: 3px 8px 3px 7px; font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
+  .badge::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; opacity: .85; }
+  .b-POR_VENCER { color: #7a5c05; }
+  .aum-chip, .dias { border-radius: 4px; }
+  .chip, .estado { border-radius: 4px; }
+
+  /* Filas por atender */
+  .alert-row td:first-child { border-left-width: 3px; }
+  .alert-row.POR_VENCER td:first-child { border-left-color: #c9a227; }
+  tr.con-aum td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+  tr.con-aum.alerta td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
+  tr.con-aum.vencido td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+  tr.con-aum td, tr.con-aum.alerta td, tr.con-aum.vencido td { background: transparent; }
+  .m-actual { color: var(--accent); }
+
+  /* Botones y formularios */
+  button, .btn { border-radius: var(--radius); font-weight: 500; transition: background .12s, border-color .12s; }
+  button:hover { border-color: #cbc6ba; }
+  button.primary { background: var(--ink); border-color: var(--ink); }
+  button.primary:hover { background: #1b2a41; }
+  button.ok { background: var(--green); border-color: var(--green); }
+  button.ok:hover { background: #185a3a; }
+  button.danger { border-color: #ecc9c5; }
+  input, select, textarea { border-radius: var(--radius); border-color: #d9d5cb; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
+  label { font-weight: 500; }
+  a, summary { color: var(--accent); }
+  .preview { background: var(--accent-bg); color: #0b4a5e; border-radius: var(--radius); }
+  dialog { border-radius: 10px; box-shadow: 0 20px 50px rgba(15, 27, 45, .25); }
+  dialog h3 { font-size: 16px; font-weight: 600; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  #toast { background: var(--ink); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(15, 27, 45, .25); }
+  #cargando .caja { border-radius: 10px; }
+  .spinner { border-top-color: var(--accent); }
+  #loading { background: linear-gradient(90deg, transparent, #3fb3d6, transparent); background-size: 200% 100%; }
+
+  /* Configuración */
+  .canal { border-radius: var(--radius); background: #fdfcfa; }
+  .canal-ico { width: 32px; height: 32px; border-radius: var(--radius); background: var(--accent-bg); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; }
+  .canal-ico .ic { width: 18px; height: 18px; vertical-align: 0; }
+  .correo-item { background: var(--gray-bg); border-radius: var(--radius); }
+  table.reporte th { font-size: 11px; }
+  table.reporte td { font-size: 13.5px; }
+
+  /* Login */
+  #login { background: var(--ink); background-image: linear-gradient(135deg, #0f1b2d 0%, #13263d 60%, #0e3a4a 100%); }
+  #login form { border-radius: 10px; border-top: 4px solid #3fb3d6; box-shadow: 0 24px 60px rgba(0, 0, 0, .35); }
+  #login .logo { display: flex; justify-content: center; }
+  #login .logo .marca { width: 48px; height: 48px; }
+  #login h2 { font-size: 20px; font-weight: 600; margin: 12px 0 22px; }
 </style>
 </head>
 <body>
 <div id="loading"></div>
 <div id="cargando" role="status" aria-live="polite"><div class="caja"><div class="spinner"></div><div id="cargando-txt">Cargando…</div></div></div>
 <header>
-  <div>
-    <h1>💳 Control de Cupos</h1>
-    <div class="hoy"><span id="hoy"></span> <span id="quien"></span></div>
+  <div class="brand">
+    <svg class="marca" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0e6e8c"/><rect x="6.5" y="9.5" width="19" height="13" rx="2" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M6.5 13.5h19" stroke="#fff" stroke-width="1.8"/><path d="M10 19h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <div>
+      <h1>Control de Cupos</h1>
+      <div class="hoy"><span id="hoy"></span> <span id="quien"></span></div>
+    </div>
   </div>
   <div class="actions">
-    <button class="small" onclick="olvidarCacheCfg(); cargar()">↻ Actualizar</button>
-    <button class="small" onclick="salir()">Salir</button>
+    <button class="small ghost" onclick="olvidarCacheCfg(); cargar()" title="Volver a cargar los datos"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/></svg> Actualizar</button>
+    <button class="small ghost" onclick="salir()"><svg class="ic" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l5-5-5-5"/><path d="M15 12H4"/></svg> Salir</button>
   </div>
 </header>
 <nav>
@@ -196,11 +332,11 @@
   <!-- PANEL -->
   <section class="tab active" id="tab-panel">
     <div class="cards">
-      <div class="stat red"><div class="n" id="s-vencidos">–</div><div class="l">Vencidos sin finalizar</div></div>
-      <div class="stat orange"><div class="n" id="s-hoy">–</div><div class="l">Vencen hoy</div></div>
-      <div class="stat yellow"><div class="n" id="s-proximos">–</div><div class="l">Próximos a vencer</div></div>
-      <div class="stat green"><div class="n" id="s-vigentes">–</div><div class="l">Vigentes</div></div>
-      <div class="stat blue"><div class="n" id="s-programados">–</div><div class="l">Programados</div></div>
+      <div class="stat red clic" onclick="verEstado('VENCIDO')"><div class="l">Vencidos sin finalizar</div><div class="n" id="s-vencidos">–</div></div>
+      <div class="stat orange clic" onclick="verEstado('VENCE_HOY')"><div class="l">Vencen hoy</div><div class="n" id="s-hoy">–</div></div>
+      <div class="stat yellow clic" onclick="verEstado('POR_VENCER')"><div class="l">Próximos a vencer</div><div class="n" id="s-proximos">–</div></div>
+      <div class="stat green clic" onclick="verEstado('VIGENTE')"><div class="l">Vigentes</div><div class="n" id="s-vigentes">–</div></div>
+      <div class="stat blue clic" onclick="verEstado('PROGRAMADO')"><div class="l">Programados</div><div class="n" id="s-programados">–</div></div>
     </div>
     <div class="panel">
       <h2>Por atender <button class="primary small" onclick="abrirAumento()">+ Nuevo aumento</button></h2>
@@ -246,7 +382,7 @@
   <!-- CLIENTES -->
   <section class="tab" id="tab-clientes">
     <div class="panel">
-      <h2>Clientes <span class="actions"><button class="small" onclick="abrirImportar()">⬆ Importar Excel</button><button class="primary small" onclick="abrirCliente()">+ Nuevo cliente</button></span></h2>
+      <h2>Clientes <span class="actions"><button class="small" onclick="abrirImportar()"><svg class="ic" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg> Importar Excel</button><button class="primary small" onclick="abrirCliente()">+ Nuevo cliente</button></span></h2>
       <div class="toolbar">
         <input id="f-cli-q" placeholder="Buscar por nombre, documento o banco…" oninput="renderClientes()">
         <select id="f-cli-filtro" onchange="renderClientes()">
@@ -268,8 +404,8 @@
     <div class="cards" id="r-kpis"></div>
     <div class="panel">
       <h2>Reportes <span class="actions">
-        <button class="small" onclick="exportarExcel(this)">⬇ Excel</button>
-        <button class="small primary" onclick="exportarPDF(this)">⬇ PDF</button>
+        <button class="small" onclick="exportarExcel(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg> Excel</button>
+        <button class="small primary" onclick="exportarPDF(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg> PDF</button>
       </span></h2>
       <div class="toolbar">
         <select id="r-tipo" onchange="renderReporte()">
@@ -329,7 +465,7 @@
         <div class="canales">
           <!-- CORREO -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">📧</span><div><b>Correo corporativo</b><div class="sub">Resumen diario en Outlook</div></div><span class="estado" id="st-email"></span></div>
+            <div class="canal-h"><span class="canal-ico"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span><div><b>Correo corporativo</b><div class="sub">Resumen diario en Outlook</div></div><span class="estado" id="st-email"></span></div>
             <div class="field">
               <label>Correos que reciben las alertas</label>
               <div id="lista-correos" class="lista-correos"></div>
@@ -347,7 +483,7 @@
 
           <!-- CALENDARIO -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">📅</span><div><b>Calendario Outlook / Teams</b><div class="sub">Evento el día de término, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
+            <div class="canal-h"><span class="canal-ico"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><div><b>Calendario Outlook / Teams</b><div class="sub">Evento el día de término, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
             <div class="field check"><input type="checkbox" id="cfg-ics"><label for="cfg-ics" style="margin:0">Enviar una <b>invitación de calendario</b> al correo corporativo al crear cada aumento</label></div>
             <ul class="pasos" style="margin:-4px 0 12px">
               <li>Queda en tu calendario de Outlook, el mismo que ves en Teams.</li>
@@ -359,7 +495,7 @@
 
           <!-- TEAMS -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">🟪</span><div><b>Canal de Teams</b> <span class="sub">(opcional)</span><div class="sub">El resumen diario publicado en un canal</div></div><span class="estado" id="st-teams"></span></div>
+            <div class="canal-h"><span class="canal-ico"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg></span><div><b>Canal de Teams</b> <span class="sub">(opcional)</span><div class="sub">El resumen diario publicado en un canal</div></div><span class="estado" id="st-teams"></span></div>
             <p class="hint" style="margin:0 0 8px">Teams no muestra correos en sus chats: tu correo corporativo ya recibe todo en Outlook. Para verlo también en Teams:</p>
             <details><summary>Opción A (recomendada): Power Automate → mensaje en tu chat de Teams</summary>
               <ol class="pasos">
@@ -523,7 +659,7 @@
 <!-- LOGIN -->
 <div id="login">
   <form onsubmit="entrar(event)">
-    <div class="logo">💳</div>
+    <div class="logo"><svg class="marca" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0e6e8c"/><rect x="6.5" y="9.5" width="19" height="13" rx="2" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M6.5 13.5h19" stroke="#fff" stroke-width="1.8"/><path d="M10 19h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg></div>
     <h2>Control de Cupos</h2>
     <div class="field"><label>Usuario</label><input id="l-usuario" autocomplete="username" autocapitalize="none" required></div>
     <div class="field"><label>Clave</label><input id="l-clave" type="password" autocomplete="current-password" required></div>
@@ -719,6 +855,14 @@
     abrirCierre(id, 'finalizar');
   }
 
+  // Indicadores del Panel → lista de Aumentos filtrada por ese estado
+  function verEstado(estado) {
+    $('f-aum-estado').value = estado;
+    $('f-aum-q').value = '';
+    document.querySelector('nav button[data-tab=aumentos]').click();
+    renderAumentos();
+  }
+
   function cargar() {
     call('obtenerDatos', [], function (d) {
       // Compatibilidad: si el servidor aún usa el estado antiguo CORTADO
@@ -778,7 +922,7 @@
       return '<tr class="alert-row ' + a.estadoCalc + '">' + celdaCliente(a) +
         '<td class="num" data-l="Aumento">+' + money(a.monto) + '</td>' + celdaVigencia(a) + celdaEstado(a) +
         '<td class="num" data-l="Cupo base">' + cupo(a.cupoBase) + '</td><td>' + botonesAumento(a) + '</td></tr>';
-    }).join('') : '<tr><td colspan="6" class="empty">✅ Nada pendiente. No hay aumentos por finalizar en los próximos ' + DATA.diasAviso + ' días.</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="empty">Nada pendiente. No hay aumentos por finalizar en los próximos ' + DATA.diasAviso + ' días.</td></tr>';
 
     var prog = ordenar(DATA.aumentos.filter(function (a) { return a.estadoCalc === 'PROGRAMADO'; })).sort(function (x, y) { return x.inicio < y.inicio ? -1 : 1; }).slice(0, 10);
     $('t-programados').innerHTML = prog.length ? prog.map(function (a) {
@@ -1318,10 +1462,10 @@
     estado('st-email', !!c.email); estado('st-cal', c.icsInvitacion && !!c.email); estado('st-teams', !!c.teamsEmail);
     var chip = function (on, txt, bad) { return '<span class="chip ' + (on ? 'on' : bad ? 'off-bad' : '') + '">' + txt + '</span>'; };
     $('cfg-chips').innerHTML =
-      chip(c.triggerActivo, c.triggerActivo ? '⏰ Revisión diaria activa' : '⏰ Revisión diaria NO instalada', true) +
-      chip(!!c.email, '📧 Correo', true) + chip(c.icsInvitacion && !!c.email, '📅 Calendario') + chip(!!c.teamsEmail, '🟪 Teams');
+      chip(c.triggerActivo, c.triggerActivo ? 'Revisión diaria activa' : 'Revisión diaria NO instalada', true) +
+      chip(!!c.email, 'Correo', true) + chip(c.icsInvitacion && !!c.email, 'Calendario') + chip(!!c.teamsEmail, 'Teams');
     $('cfg-aviso').innerHTML = (!c.triggerActivo || !c.email)
-      ? '<div class="aviso-setup">⚠️ Falta la configuración inicial: en el editor de Apps Script ejecuta <b>crearBaseDeDatos</b> una vez. Luego pulsa <b>Guardar configuración</b>.</div>' : '';
+      ? '<div class="aviso-setup">Falta la configuración inicial: en el editor de Apps Script ejecuta <b>crearBaseDeDatos</b> una vez. Luego pulsa <b>Guardar configuración</b>.</div>' : '';
   }
   // Configuración y usuarios se piden una sola vez por sesión (en segundo plano
   // al entrar). Se vuelven a pedir con "↻ Actualizar" o al iniciar sesión otra vez.
@@ -1380,7 +1524,7 @@
   var RE_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
   function pintarCorreos() {
     $('lista-correos').innerHTML = CORREOS.length ? CORREOS.map(function (e, i) {
-      return '<div class="correo-item"><span title="' + esc(e) + '">📧 ' + esc(e) + '</span>' +
+      return '<div class="correo-item"><span title="' + esc(e) + '">' + esc(e) + '</span>' +
         '<button type="button" title="Quitar" onclick="quitarCorreo(' + i + ')">✕</button></div>';
     }).join('') : '<div class="correo-vacio">Aún no hay correos. Agrega al menos uno.</div>';
   }
@@ -1438,7 +1582,7 @@
       call('enviarPrueba', [canal || ''], function (r) {
         if (r.errores.length) { toast(r.errores.join(' · '), true); return; }
         var destinos = canal === 'teams' ? c.teamsEmail : canal === 'email' || canal === 'ics' ? c.email : [c.email, c.teamsEmail].filter(Boolean).join(', ');
-        toast('✅ Enviado (' + r.canales.join(', ') + ') a ' + destinos + '. Si en 2-3 minutos no aparece, revisa "Correo no deseado" y la cuarentena de tu empresa.');
+        toast('Enviado (' + r.canales.join(', ') + ') a ' + destinos + '. Si en 2-3 minutos no aparece, revisa "Correo no deseado" y la cuarentena de tu empresa.');
       }, btn);
     }, btn);
   }
@@ -1446,7 +1590,7 @@
     call('revisarAhora', [], function (r) {
       if (!r.enviado) toast('No hay aumentos por vencer. No se envió nada.');
       else if (r.errores && r.errores.length) toast(r.errores.join(' · '), true);
-      else toast('✅ Alerta enviada (' + r.total + ' aumento/s) por: ' + r.canales.join(', '));
+      else toast('Alerta enviada (' + r.total + ' aumento/s) por: ' + r.canales.join(', '));
     }, btn);
   }
 
