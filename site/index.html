@@ -302,6 +302,33 @@
   #login .logo { display: flex; justify-content: center; }
   #login .logo .marca { width: 48px; height: 48px; }
   #login h2 { font-size: 20px; font-weight: 600; margin: 12px 0 22px; }
+
+  /* ═════════ Tablas tipo planilla: cuadrícula y encabezado destacado ═════════ */
+  .alert-row td:first-child { border-left: 0 !important; }
+  .alert-row.VENCIDO td:first-child { box-shadow: inset 4px 0 0 var(--red); }
+  .alert-row.VENCE_HOY td:first-child { box-shadow: inset 4px 0 0 var(--orange); }
+  .alert-row.POR_VENCER td:first-child { box-shadow: inset 4px 0 0 #c9a227; }
+  @media (min-width: 721px) {
+    .panel table, dialog table { border-collapse: collapse; }
+    .panel table th, .panel table td, dialog table th, dialog table td { border: 1px solid #dcd7cb; }
+    .panel table th, dialog table th {
+      background: #1c2b40; color: #ffffff; font-size: 11.5px; font-weight: 700; letter-spacing: .07em;
+      padding: 11px 10px; border-color: #2e405a; border-top: 0; position: relative;
+    }
+    .panel table tr > :first-child, dialog table tr > :first-child { border-left: 0; }
+    .panel table tr > :last-child, dialog table tr > :last-child { border-right: 0; }
+    .panel table tbody tr:last-child td { border-bottom: 0; }
+    .panel table tbody tr:nth-child(even) td, dialog table tbody tr:nth-child(even) td { background: #f8f6f1; }
+    .panel table tbody tr:hover td, dialog table tbody tr:hover td { background: #eaf4f7; }
+    .panel table td.empty { background: #fff !important; }
+    table.reporte tr.grupo td { background: #e9e5dc !important; color: var(--ink); border-top: 2px solid #c9c2b3; }
+    table.reporte tfoot td { background: #efece5; border-top: 2px solid var(--ink); }
+    tr.con-aum.vencido td { background: #fdf4f3 !important; }
+    tr.con-aum.alerta td { background: #fdf8f1 !important; }
+    tr.con-aum td { background: #f5faf7; }
+    .imp-table { border-radius: var(--radius); }
+    .imp-table tr.err td { background: var(--red-bg) !important; }
+  }
 </style>
 </head>
 <body>

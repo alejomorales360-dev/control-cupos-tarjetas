@@ -1402,13 +1402,13 @@ function htmlAlerta_(g, hoy, cfg) {
     if (k === 'porVencer') return 'faltan ' + a.diasRestantes + ' dia(s)';
     return 'desde hoy';
   };
-  const th = 'padding:8px 10px;background:#f3f4f6;color:#374151;font-size:12px;text-align:left;border-bottom:1px solid #e5e7eb;' + F;
+  const th = 'padding:9px 10px;background:#1c2b40;color:#ffffff;font-size:12px;font-weight:bold;text-align:left;border:1px solid #2e405a;' + F;
   const seccion = function (k) {
     const lista = g[k], S = SECC[k];
     if (!lista.length) return '';
     const filas = lista.map(function (a, i) {
       const tarjeta = [a.banco, a.tarjeta ? '****' + a.tarjeta : ''].filter(String).join(' ');
-      const td = 'padding:10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;background:' + (i % 2 ? '#fafafa' : '#ffffff') + ';' + F;
+      const td = 'padding:10px;border:1px solid #dcd7cb;font-size:14px;color:#111827;background:' + (i % 2 ? '#f8f6f1' : '#ffffff') + ';' + F;
       const boton = enlaces && k !== 'inicianHoy'
         ? '<a href="' + APP_URL + '?finalizar=' + encodeURIComponent(a.id) + '" style="display:inline-block;background:#1f2937;color:#ffffff;text-decoration:none;font-weight:bold;font-size:13px;padding:7px 14px;border-radius:6px;' + F + '">Finalizar</a>'
         : '';
