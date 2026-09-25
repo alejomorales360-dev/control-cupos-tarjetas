@@ -180,7 +180,7 @@
     <div class="hoy"><span id="hoy"></span> <span id="quien"></span></div>
   </div>
   <div class="actions">
-    <button class="small" onclick="cargar()">↻ Actualizar</button>
+    <button class="small" onclick="olvidarCacheCfg(); cargar()">↻ Actualizar</button>
     <button class="small" onclick="salir()">Salir</button>
   </div>
 </header>
@@ -624,6 +624,7 @@
       .then(function (r) {
         cargando(false, '', btn);
         guardarToken(r.token, $('l-recordar').checked);
+        olvidarCacheCfg();
         aplicarSesion(r);
         $('login').classList.remove('show');
         $('l-clave').value = '';
@@ -640,6 +641,7 @@
     $('mi-usuario').textContent = se ? '(' + se.usuario + ')' : '';
   }
   function salir() {
+    olvidarCacheCfg();
     var t = TOKEN;
     mostrarLogin();
     if (t) api('cerrarSesion', [t]).catch(function () {});
@@ -670,16 +672,19 @@
     if (!CARGAS) $('cargando').classList.remove('show');
   }
 
-  function call(fn, args, ok, btn, texto) {
+  // texto === false → carga en segundo plano: sin ventana de "Cargando…"
+  function call(fn, args, ok, btn, texto, fallo) {
     if (!TOKEN) { mostrarLogin(); return; }
-    cargando(true, texto || TEXTOS_CARGA[fn], btn);
+    var silencio = texto === false;
+    if (!silencio) cargando(true, texto || TEXTOS_CARGA[fn], btn);
     api(fn, [TOKEN].concat(args || []))
-      .then(function (r) { cargando(false, '', btn); ok && ok(r); })
+      .then(function (r) { if (!silencio) cargando(false, '', btn); ok && ok(r); })
       .catch(function (e) {
-        cargando(false, '', btn);
+        if (!silencio) cargando(false, '', btn);
+        fallo && fallo(e);
         var msg = e.message || String(e);
         if (msg.indexOf('SESION_INVALIDA') >= 0) mostrarLogin('Tu sesión expiró. Vuelve a entrar.');
-        else toast(msg, true);
+        else if (!silencio) toast(msg, true);
       });
   }
 
@@ -690,7 +695,7 @@
       document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
       b.classList.add('active');
       $('tab-' + b.dataset.tab).classList.add('active');
-      if (b.dataset.tab === 'config' && SESION && SESION.rol === 'ADMIN') { cargarConfig(); cargarUsuarios(); }
+      if (b.dataset.tab === 'config') precargarAdmin(false);
       if (b.dataset.tab === 'reportes') renderReporte();
     });
   });
@@ -710,6 +715,7 @@
       $('bancos').innerHTML = Object.keys(bancos).map(function (b) { return '<option value="' + esc(b) + '">'; }).join('');
       renderPanel(); renderAumentos(); renderClientes();
       if ($('tab-reportes').classList.contains('active')) renderReporte();
+      precargarAdmin(!$('tab-config').classList.contains('active'));
     });
   }
 
@@ -1271,11 +1277,30 @@
     $('cfg-aviso').innerHTML = (!c.triggerActivo || !c.email)
       ? '<div class="aviso-setup">⚠️ Falta la configuración inicial: en el editor de Apps Script ejecuta <b>crearBaseDeDatos</b> una vez. Luego pulsa <b>Guardar configuración</b>.</div>' : '';
   }
-  function cargarConfig() { call('obtenerConfig', [], pintarConfig); }
+  // Configuración y usuarios se piden una sola vez por sesión (en segundo plano
+  // al entrar). Se vuelven a pedir con "↻ Actualizar" o al iniciar sesión otra vez.
+  var CACHE_CFG = { config: 'no', usuarios: 'no' };   // 'no' | 'cargando' | 'ok'
+  function cargarConfig(fondo) {
+    if (CACHE_CFG.config === 'cargando') return;
+    CACHE_CFG.config = 'cargando';
+    call('obtenerConfig', [], function (c) { CACHE_CFG.config = 'ok'; pintarConfig(c); }, null, fondo ? false : undefined,
+      function () { CACHE_CFG.config = 'no'; });
+  }
+  function precargarAdmin(fondo) {
+    if (!SESION || SESION.rol !== 'ADMIN') return;
+    if (CACHE_CFG.config === 'no') cargarConfig(fondo);
+    if (CACHE_CFG.usuarios === 'no') cargarUsuarios(fondo);
+  }
+  function olvidarCacheCfg() { CACHE_CFG.config = 'no'; CACHE_CFG.usuarios = 'no'; }
 
   // ── usuarios (admin) ───────────────────────────────────
   var USUARIOS = [];
-  function cargarUsuarios() { call('listarUsuarios', [], pintarUsuarios); }
+  function cargarUsuarios(fondo) {
+    if (CACHE_CFG.usuarios === 'cargando') return;
+    CACHE_CFG.usuarios = 'cargando';
+    call('listarUsuarios', [], function (l) { CACHE_CFG.usuarios = 'ok'; pintarUsuarios(l); }, null, fondo ? false : undefined,
+      function () { CACHE_CFG.usuarios = 'no'; });
+  }
   function pintarUsuarios(lista) {
     USUARIOS = lista;
     $('t-usuarios').innerHTML = lista.map(function (u) {
