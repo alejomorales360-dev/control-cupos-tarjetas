@@ -1053,6 +1053,11 @@
       filas: Object.keys(g).map(function (k) { var x = g[k]; x.nClientes = Object.keys(x.clientes).length; return x; }).sort(function (x, y) { return y.monto - x.monto; }) };
   }
 
+  // Alineación por tipo de dato: la misma para encabezado, filas y total
+  function alineacion(t) { return t === 'money' || t === 'num' ? 'right' : t === 'date' || t === 'dias' ? 'center' : 'left'; }
+  // Ancho fijo (puntos PDF) para columnas de cifras y fechas; los textos se reparten el resto
+  var ANCHO_PDF = { money: 72, num: 62, dias: 38, date: 62 };
+
   function valorTexto(v, t) {
     if (v == null || v === '') return '';
     if (t === 'money') return money(v);
@@ -1088,11 +1093,12 @@
     renderKpis();
     var r = datosReporte();
     $('r-desc').textContent = r.desc + ' ' + r.filas.length + ' fila(s).';
-    $('r-head').innerHTML = '<tr>' + r.cols.map(function (c) { return '<th' + (c.t && c.t !== 'txt' && c.t !== 'date' ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr>';
+    var al = function (c) { return ' style="text-align:' + alineacion(c.t) + '"'; };
+    $('r-head').innerHTML = '<tr>' + r.cols.map(function (c) { return '<th' + al(c) + '>' + esc(c.h) + '</th>'; }).join('') + '</tr>';
     var celda = function (f, c) {
       var v = f[c.k];
-      if (c.t === 'dias') return '<td class="num">' + diasChip(v) + '</td>';
-      return '<td' + (c.t === 'money' || c.t === 'num' ? ' class="num"' : '') + '>' + esc(valorTexto(v, c.t)) + '</td>';
+      if (c.t === 'dias') return '<td' + al(c) + '>' + diasChip(v) + '</td>';
+      return '<td' + al(c) + '>' + esc(valorTexto(v, c.t)) + '</td>';
     };
     var html = '', grupo = null;
     r.filas.forEach(function (f) {
@@ -1102,7 +1108,7 @@
     $('r-body').innerHTML = html || '<tr><td colspan="' + r.cols.length + '" class="empty">No hay datos para este reporte.</td></tr>';
     var tot = totales(r);
     $('r-foot').innerHTML = tot && r.filas.length ? '<tr>' + r.cols.map(function (c, i) {
-      return '<td' + (c.total ? ' class="num"' : '') + '>' + (i === 0 ? 'TOTAL' : c.total ? esc(valorTexto(tot[c.k], c.t)) : '') + '</td>';
+      return '<td' + (i === 0 ? '' : al(c)) + '>' + (i === 0 ? 'TOTAL' : c.total ? esc(valorTexto(tot[c.k], c.t)) : '') + '</td>';
     }).join('') + '</tr>' : '';
   }
 
@@ -1194,8 +1200,23 @@
       doc.autoTable({
         startY: 84, head: [r.cols.map(function (c) { return c.h; })], body: body,
         foot: tot ? [r.cols.map(function (c, i) { return i === 0 ? 'TOTAL' : c.total ? valorTexto(tot[c.k], c.t) : ''; })] : undefined,
-        styles: { fontSize: 8, cellPadding: 4 }, headStyles: { fillColor: [31, 41, 55] }, footStyles: { fillColor: [243, 244, 246], textColor: 20, fontStyle: 'bold' },
-        columnStyles: r.cols.reduce(function (o, c, i) { if (c.t === 'money' || c.t === 'num') o[i] = { halign: 'right' }; return o; }, {}),
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: { top: 4, bottom: 4, left: 5, right: 5 }, valign: 'middle', lineColor: [229, 231, 235], lineWidth: 0.5, textColor: [17, 24, 39], overflow: 'linebreak' },
+        headStyles: { fillColor: [31, 41, 55], textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [243, 244, 246], textColor: [17, 24, 39], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [249, 250, 251] },
+        columnStyles: r.cols.reduce(function (o, c, i) {
+          o[i] = { halign: alineacion(c.t) };
+          if (ANCHO_PDF[c.t]) o[i].cellWidth = ANCHO_PDF[c.t];
+          return o;
+        }, {}),
+        // Encabezado y total con la misma alineación que su columna
+        didParseCell: function (d) {
+          var c = r.cols[d.column.index];
+          if (!c || d.cell.colSpan > 1) return;
+          if (d.section === 'head' || d.section === 'foot') d.cell.styles.halign = d.section === 'foot' && d.column.index === 0 ? 'left' : alineacion(c.t);
+        },
+        margin: { left: 40, right: 40 },
         showFoot: 'lastPage',
         didDrawPage: function () {
           doc.setFontSize(8); doc.setTextColor(150);
