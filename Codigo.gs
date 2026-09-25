@@ -4,11 +4,11 @@
 //
 // Registra clientes con su cupo base y los aumentos temporales de cupo
 // (monto + rango de fechas). Todos los días revisa qué aumentos están por
-// vencer, vencen hoy o ya vencieron sin haberse cortado, y avisa SOLO POR
+// vencer, vencen hoy o ya vencieron sin haberse finalizado, y avisa SOLO POR
 // CORREO (sin APIs externas):
 //   - Correo corporativo (Outlook): resumen diario.
 //   - Calendario (Outlook / Teams): invitación de reunión al crear cada
-//     aumento; se cancela sola al marcarlo cortado o anulado.
+//     aumento; se cancela sola al marcarlo finalizado o anulado.
 //   - Teams (opcional): el mismo resumen al correo de un canal de Teams.
 //
 // Todo se guarda en la planilla (ver HEADERS y crearBaseDeDatos()).
@@ -27,7 +27,7 @@ const SH_SESIONES  = 'SESIONES';
 // SPREADSHEET_ID (hace falta para saber dónde está la planilla).
 const HEADERS = {
   CLIENTES:  ['ID','NOMBRE','DOCUMENTO','BANCO','TARJETA_ULT4','CUPO_BASE','EMAIL','TELEFONO','NOTAS','ACTIVO','CREADO'],
-  AUMENTOS:  ['ID','ID_CLIENTE','CLIENTE','MONTO','FECHA_INICIO','FECHA_FIN','MOTIVO','ESTADO','FECHA_CORTE','NOTA_CORTE','ULTIMO_AVISO','EVENTO_CALENDAR','CREADO'],
+  AUMENTOS:  ['ID','ID_CLIENTE','CLIENTE','MONTO','FECHA_INICIO','FECHA_FIN','MOTIVO','ESTADO','FECHA_CIERRE','NOTA_CIERRE','ULTIMO_AVISO','EVENTO_CALENDAR','CREADO'],
   HISTORIAL: ['FECHA','ACCION','DETALLE','USUARIO'],
   USUARIOS:  ['USUARIO','NOMBRE','ROL','ACTIVO','HASH','SAL','CLAVE_NUEVA','CREADO','ULTIMO_ACCESO'],
   CONFIG:    ['CLAVE','VALOR','DESCRIPCION'],
@@ -39,7 +39,7 @@ const CONFIG_DEF = [
   ['EMAIL_ALERTAS',  '',   'Correo(s) corporativo(s) que reciben alertas e invitaciones de calendario, separados por coma'],
   ['DIAS_AVISO',     '3',  'Días de anticipación para el aviso previo'],
   ['HORA_ALERTA',    '8',  'Hora (0-23) de la revisión diaria'],
-  ['ICS_INVITACION', 'SI', 'SI = enviar invitación de calendario (Outlook/Teams) al crear cada aumento y cancelarla al cortarlo'],
+  ['ICS_INVITACION', 'SI', 'SI = enviar invitación de calendario (Outlook/Teams) al crear cada aumento y cancelarla al finalizarlo'],
   ['TEAMS_EMAIL',    '',   'Opcional: correo de un canal de Teams (canal → ••• → Obtener dirección de correo electrónico)']
 ];
 
@@ -47,7 +47,11 @@ const CONFIG_DEF = [
 const CONFIG_OBSOLETA = ['USAR_CALENDAR', 'WSP_TELEFONO', 'WSP_APIKEY', 'TEAMS_WEBHOOK', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID'];
 
 const ESTADO_ACTIVO  = 'ACTIVO';
-const ESTADO_CORTADO = 'CORTADO';
+const ESTADO_FINALIZADO = 'FINALIZADO';
+const ESTADO_LEGADO_CORTADO = 'CORTADO';   // nombre usado por versiones anteriores
+
+// Columnas renombradas: la app acepta planillas con los nombres antiguos
+const ALIAS_COLUMNAS = { FECHA_CORTE: 'FECHA_CIERRE', NOTA_CORTE: 'NOTA_CIERRE' };
 const ESTADO_ANULADO = 'ANULADO';
 
 const TRIGGER_FN = 'revisarVencimientos';
@@ -74,9 +78,9 @@ const NOTAS_COLUMNAS = {
   },
   AUMENTOS: {
     ID: 'Identificador interno (lo genera la app, no editar)', ID_CLIENTE: 'ID del cliente en la hoja CLIENTES', CLIENTE: 'Nombre del cliente (copia)',
-    MONTO: 'Monto del aumento temporal en USD', FECHA_INICIO: 'Desde (dd-mm-aaaa)', FECHA_FIN: 'Hasta: fecha en que hay que cortar el cupo con el banco',
-    MOTIVO: 'Motivo o N° de solicitud', ESTADO: 'ACTIVO = pendiente de corte · CORTADO = ya se hizo el trámite · ANULADO = no se aplicó',
-    FECHA_CORTE: 'Cuándo se marcó como cortado/anulado', NOTA_CORTE: 'N° de trámite del banco u observación del cierre',
+    MONTO: 'Monto del aumento temporal en USD', FECHA_INICIO: 'Desde (dd-mm-aaaa)', FECHA_FIN: 'Hasta: fecha de término, en que hay que finalizar el aumento con el banco',
+    MOTIVO: 'Motivo o N° de solicitud', ESTADO: 'ACTIVO = pendiente de finalizar · FINALIZADO = ya se hizo el trámite con el banco · ANULADO = no se aplicó',
+    FECHA_CIERRE: 'Cuándo se marcó como finalizado/anulado', NOTA_CIERRE: 'N° de trámite del banco u observación del cierre',
     ULTIMO_AVISO: 'Última vez que se envió alerta por este aumento', EVENTO_CALENDAR: 'ID del evento de Google Calendar (interno)', CREADO: 'Fecha de registro'
   },
   HISTORIAL: { FECHA: 'Fecha y hora', ACCION: 'Qué se hizo', DETALLE: 'Detalle de la acción', USUARIO: 'Usuario de la app que lo hizo' },
@@ -118,7 +122,8 @@ function crearBaseDeDatos() {
   CACHE_ = {};
 
   ensureSheets_(ss);
-  darFormatoHojas_(ss);
+  darFormatoHojas_(ss);   // también renombra encabezados antiguos (FECHA_CORTE → FECHA_CIERRE…)
+  migrarEstadosFinalizado_(ss);
   ['Hoja 1', 'Hoja1', 'Sheet1'].forEach(function (n) {
     const h = ss.getSheetByName(n);
     if (h && h.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(h);
@@ -138,6 +143,19 @@ function crearBaseDeDatos() {
   Logger.log('   Alertas a: ' + leerConfigHoja_().EMAIL_ALERTAS + ' · revisión diaria a las ' + getConfig_().hora + ':00');
   if (!leerUsuarios_().length) generarClaveAcceso();
   else Logger.log('   Usuarios existentes: ' + leerUsuarios_().map(function (u) { return u.USUARIO; }).join(', ') + ' (tus claves no se tocaron)');
+}
+
+/** Cambia en la hoja AUMENTOS el estado antiguo CORTADO por FINALIZADO. */
+function migrarEstadosFinalizado_(ss) {
+  const sh = ss.getSheetByName(SH_AUMENTOS);
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  const col = HEADERS.AUMENTOS.indexOf('ESTADO') + 1;
+  const r = sh.getRange(2, col, n, 1);
+  const v = r.getValues();
+  let cambios = 0;
+  v.forEach(function (fila) { if (fila[0] === ESTADO_LEGADO_CORTADO) { fila[0] = ESTADO_FINALIZADO; cambios++; } });
+  if (cambios) { r.setValues(v); Logger.log('   ' + cambios + ' aumento(s) CORTADO pasaron a FINALIZADO'); }
 }
 
 /** Alias: versiones anteriores usaban setup(). */
@@ -186,7 +204,7 @@ function darFormatoHojas_(ss) {
       else if (['TARJETA_ULT4', 'DOCUMENTO', 'TELEFONO', 'HASH', 'SAL', 'CLAVE_NUEVA', 'TOKEN_HASH', 'USUARIO', 'CLAVE', 'VALOR'].indexOf(k) >= 0) col(k).setNumberFormat('@');
     });
     if (name === SH_CLIENTES || name === SH_USUARIOS) col('ACTIVO').setDataValidation(lista(['SI', 'NO']));
-    if (name === SH_AUMENTOS) col('ESTADO').setDataValidation(lista([ESTADO_ACTIVO, ESTADO_CORTADO, ESTADO_ANULADO]));
+    if (name === SH_AUMENTOS) col('ESTADO').setDataValidation(lista([ESTADO_ACTIVO, ESTADO_FINALIZADO, ESTADO_ANULADO]));
     if (name === SH_USUARIOS) {
       col('ROL').setDataValidation(lista(['ADMIN', 'OPERADOR']));
       sh.getRange(2, h.indexOf('HASH') + 1, FILAS, 2).setFontColor('#9ca3af');
@@ -199,7 +217,7 @@ function darFormatoHojas_(ss) {
       });
     }
     if (name === SH_AUMENTOS) {
-      // Resaltar vencidos sin cortar (rojo) y que vencen hoy (naranjo)
+      // Resaltar vencidos sin finalizar (rojo) y que vencen hoy (naranjo)
       const rango = sh.getRange(2, 1, FILAS, h.length);
       const cFin = String.fromCharCode(65 + h.indexOf('FECHA_FIN')), cEst = String.fromCharCode(65 + h.indexOf('ESTADO'));
       sh.setConditionalFormatRules([
@@ -207,7 +225,7 @@ function darFormatoHojas_(ss) {
           .setBackground('#fee2e2').setRanges([rango]).build(),
         SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND($' + cEst + '2="ACTIVO",$' + cFin + '2=TODAY())')
           .setBackground('#ffedd5').setRanges([rango]).build(),
-        SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR($' + cEst + '2="CORTADO",$' + cEst + '2="ANULADO")')
+        SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=OR($' + cEst + '2="FINALIZADO",$' + cEst + '2="ANULADO")')
           .setFontColor('#9ca3af').setRanges([rango]).build()
       ]);
     }
@@ -330,7 +348,8 @@ function doPost(e) {
     obtenerDatos: obtenerDatos,
     guardarCliente: guardarCliente,
     guardarAumento: guardarAumento,
-    marcarCortado: marcarCortado,
+    marcarCortado: marcarFinalizado,   // nombre antiguo, se mantiene por compatibilidad
+    marcarFinalizado: marcarFinalizado,
     anularAumento: anularAumento,
     reabrirAumento: reabrirAumento,
     obtenerConfig: obtenerConfig,
@@ -712,7 +731,8 @@ function leer_(name) {
   return values
     .map(function (row, i) {
       const o = { _row: i + 2 };
-      h.forEach(function (k, j) { o[k] = row[j]; });
+      h.forEach(function (k, j) { o[ALIAS_COLUMNAS[k] || k] = row[j]; });
+      if (name === SH_AUMENTOS && o.ESTADO === ESTADO_LEGADO_CORTADO) o.ESTADO = ESTADO_FINALIZADO;
       return o;
     })
     .filter(function (o) { return name === SH_HISTORIAL || o[h[0]] !== ''; });
@@ -780,12 +800,12 @@ function money_(n) {
  *   PROGRAMADO  aún no empieza
  *   VIGENTE     en curso, lejos del fin
  *   POR_VENCER  termina dentro de DIAS_AVISO días
- *   VENCE_HOY   hoy es la fecha de fin → hacer el trámite de corte
- *   VENCIDO     ya pasó la fecha de fin y NO se ha marcado como cortado
- *   CORTADO / ANULADO  cerrados
+ *   VENCE_HOY   hoy es la fecha de fin → hacer el trámite con el banco
+ *   VENCIDO     ya pasó la fecha de fin y NO se ha marcado como finalizado
+ *   FINALIZADO / ANULADO  cerrados
  */
 function estadoCalculado_(a, hoy, diasAviso) {
-  if (a.ESTADO === ESTADO_CORTADO) return 'CORTADO';
+  if (a.ESTADO === ESTADO_FINALIZADO) return 'FINALIZADO';
   if (a.ESTADO === ESTADO_ANULADO) return 'ANULADO';
   const ini = aISO_(a.FECHA_INICIO), fin = aISO_(a.FECHA_FIN);
   if (hoy < ini) return 'PROGRAMADO';
@@ -813,8 +833,8 @@ function aumentoDTO_(a, hoy, diasAviso, clientesById) {
     estado: a.ESTADO,
     estadoCalc: estadoCalculado_(a, hoy, diasAviso),
     diasRestantes: fin ? diasEntre_(hoy, fin) : null,
-    fechaCorte: aISO_(a.FECHA_CORTE),
-    notaCorte: a.NOTA_CORTE || '',
+    fechaCorte: aISO_(a.FECHA_CIERRE),
+    notaCorte: a.NOTA_CIERRE || '',
     ultimoAviso: aISO_(a.ULTIMO_AVISO),
     tieneEvento: !!a.EVENTO_CALENDAR
   };
@@ -945,7 +965,7 @@ function importarDatos(token, filas, soloValidar) {
             nuevosAumentos.push({
               ID: nuevoId_('A'), ID_CLIENTE: cli.ID, CLIENTE: cli.NOMBRE, MONTO: monto,
               FECHA_INICIO: isoAFecha_(ini), FECHA_FIN: isoAFecha_(fin), MOTIVO: String(f.motivo || 'Importado desde Excel').trim(),
-              ESTADO: ESTADO_ACTIVO, FECHA_CORTE: '', NOTA_CORTE: '', ULTIMO_AVISO: '', EVENTO_CALENDAR: '', CREADO: new Date(),
+              ESTADO: ESTADO_ACTIVO, FECHA_CIERRE: '', NOTA_CIERRE: '', ULTIMO_AVISO: '', EVENTO_CALENDAR: '', CREADO: new Date(),
               _cliente: cli
             });
             res.aumentosNuevos++; out.aumento = 'nuevo +' + money_(monto) + ' del ' + isoADMY_(ini) + ' al ' + isoADMY_(fin);
@@ -1066,8 +1086,8 @@ function guardarAumento(token, a) {
       FECHA_FIN: isoAFecha_(fin),
       MOTIVO: String(a.motivo || '').trim(),
       ESTADO: ESTADO_ACTIVO,
-      FECHA_CORTE: '',
-      NOTA_CORTE: '',
+      FECHA_CIERRE: '',
+      NOTA_CIERRE: '',
       ULTIMO_AVISO: existente ? existente.ULTIMO_AVISO : '',
       EVENTO_CALENDAR: existente ? existente.EVENTO_CALENDAR : '',
       CREADO: existente ? existente.CREADO : new Date()
@@ -1085,9 +1105,9 @@ function guardarAumento(token, a) {
   });
 }
 
-function marcarCortado(token, id, nota) {
+function marcarFinalizado(token, id, nota) {
   exigirSesion_(token);
-  return cerrarAumento_(id, ESTADO_CORTADO, nota);
+  return cerrarAumento_(id, ESTADO_FINALIZADO, nota);
 }
 
 function anularAumento(token, id, nota) {
@@ -1101,8 +1121,8 @@ function reabrirAumento(token, id) {
     const a = leer_(SH_AUMENTOS).filter(function (x) { return x.ID === id; })[0];
     if (!a) throw new Error('Aumento no encontrado.');
     a.ESTADO = ESTADO_ACTIVO;
-    a.FECHA_CORTE = '';
-    a.NOTA_CORTE = '';
+    a.FECHA_CIERRE = '';
+    a.NOTA_CIERRE = '';
     escribirFila_(SH_AUMENTOS, a, a._row);
     const cfg = getConfig_();
     if (cfg.icsInvitacion && cfg.email) {
@@ -1119,11 +1139,11 @@ function cerrarAumento_(id, estado, nota) {
     if (!a) throw new Error('Aumento no encontrado.');
     if (a.ESTADO !== ESTADO_ACTIVO) throw new Error('Este aumento ya está ' + a.ESTADO.toLowerCase() + '.');
     a.ESTADO = estado;
-    a.FECHA_CORTE = new Date();
-    a.NOTA_CORTE = String(nota || '').trim();
+    a.FECHA_CIERRE = new Date();
+    a.NOTA_CIERRE = String(nota || '').trim();
     if (a.EVENTO_CALENDAR) {
       if (estado === ESTADO_ANULADO) { borrarEvento_(a.EVENTO_CALENDAR); a.EVENTO_CALENDAR = ''; }
-      else marcarEventoCortado_(a.EVENTO_CALENDAR);
+      else marcarEventoFinalizado_(a.EVENTO_CALENDAR);
     }
     escribirFila_(SH_AUMENTOS, a, a._row);
     const cfg = getConfig_();
@@ -1131,8 +1151,8 @@ function cerrarAumento_(id, estado, nota) {
       // Quita el evento del calendario de Outlook/Teams
       try { enviarInvitacionIcs_(cfg, [a], false, 'CANCEL', estado); } catch (e) { Logger.log('No se pudo enviar la cancelación: ' + e); }
     }
-    log_(estado === ESTADO_CORTADO ? 'CUPO_CORTADO' : 'AUMENTO_ANULADO',
-      a.CLIENTE + ' · +' + money_(num_(a.MONTO)) + (a.NOTA_CORTE ? ' · ' + a.NOTA_CORTE : ''));
+    log_(estado === ESTADO_FINALIZADO ? 'AUMENTO_FINALIZADO' : 'AUMENTO_ANULADO',
+      a.CLIENTE + ' · +' + money_(num_(a.MONTO)) + (a.NOTA_CIERRE ? ' · ' + a.NOTA_CIERRE : ''));
     return true;
   });
 }
@@ -1312,7 +1332,7 @@ function enviarAlertas_(g, hoy, cfg, esPrueba, soloCanal) {
   const canales = [], errores = [];
   const urgentes = g.vencidos.length + g.venceHoy.length;
   const asunto = (esPrueba ? '[PRUEBA] ' : '') +
-    'Control de Cupos: ' + (urgentes ? urgentes + ' cupo(s) por cortar' : g.porVencer.length + ' cupo(s) proximos a vencer') +
+    'Control de Cupos: ' + (urgentes ? urgentes + ' aumento(s) por finalizar' : g.porVencer.length + ' aumento(s) proximos a vencer') +
     ' (' + isoADMY_(hoy) + ')';
   const correo = { subject: asunto, htmlBody: htmlAlerta_(g, hoy, cfg), body: textoAlerta_(g, hoy), name: APP_NAME };
 
@@ -1352,11 +1372,11 @@ function textoAlerta_(g, hoy) {
     lista.forEach(function (a) { out.push('- ' + lineaAumento_(a) + (extra(a) ? ' - ' + extra(a) : '')); });
     out.push('');
   };
-  bloque('VENCIDOS - CORTE PENDIENTE', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; });
+  bloque('VENCIDOS - SIN FINALIZAR', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; });
   bloque('VENCEN HOY - hacer tramite con el banco', g.venceHoy, function () { return ''; });
   bloque('PROXIMOS A VENCER', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' dia(s)'; });
   bloque('INICIAN HOY', g.inicianHoy, function () { return ''; });
-  out.push('Cuando hagas el corte con el banco, marcalo como "Cortado" en la app para dejar de recibir este aviso.');
+  out.push('Cuando hagas el tramite con el banco, marcalo como "Finalizado" en la app para dejar de recibir este aviso.');
   return out.join('\n');
 }
 
@@ -1379,11 +1399,11 @@ function htmlAlerta_(g, hoy, cfg) {
   };
   return '<div style="font-family:Arial,sans-serif;font-size:14px;color:#111">' +
     '<p><b>Control de Cupos - ' + isoADMY_(hoy) + '</b></p>' +
-    seccion('Vencidos - corte pendiente', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; }) +
+    seccion('Vencidos - sin finalizar', g.vencidos, function (a) { return 'vencio hace ' + (-a.diasRestantes) + ' dia(s)'; }) +
     seccion('Vencen hoy - hacer tramite con el banco', g.venceHoy, function () { return 'hoy'; }) +
     seccion('Proximos a vencer (' + cfg.diasAviso + ' dias)', g.porVencer, function (a) { return 'faltan ' + a.diasRestantes + ' dia(s)'; }) +
     seccion('Inician hoy', g.inicianHoy, function () { return ''; }) +
-    '<p style="margin-top:18px">Cuando hagas el corte con el banco, marcalo como <b>Cortado</b> en la app para dejar de recibir este aviso.</p>' +
+    '<p style="margin-top:18px">Cuando hagas el tramite con el banco, marcalo como <b>Finalizado</b> en la app para dejar de recibir este aviso.</p>' +
     '</div>';
 }
 
@@ -1391,10 +1411,10 @@ function htmlAlerta_(g, hoy, cfg) {
 // INVITACIÓN DE CALENDARIO — Outlook / Teams (sin API, por correo)
 // ════════════════════════════════════════════════════════════════
 // REQUEST: al crear/editar/reabrir un aumento llega una invitación de reunión
-//   (día completo, en la fecha de corte) al correo corporativo; Outlook la pone
+//   (día completo, en la fecha de término) al correo corporativo; Outlook la pone
 //   en el calendario, que es el mismo que muestra Teams. Recordatorios:
 //   09:00 del día anterior y 09:00 del mismo día.
-// CANCEL: al marcarlo cortado o anulado llega la cancelación y el evento se
+// CANCEL: al marcarlo finalizado o anulado llega la cancelación y el evento se
 //   quita del calendario. Mismo UID para todo el ciclo de vida del aumento.
 // PUBLISH: importación masiva (>20): un solo .ics con todos los eventos.
 
@@ -1423,10 +1443,10 @@ function enviarInvitacionIcs_(cfg, aumentos, esPrueba, metodo, estadoCierre) {
       'SEQUENCE:' + Math.floor(Date.now() / 1000),
       'DTSTART;VALUE=DATE:' + icsFecha_(fin),
       'DTEND;VALUE=DATE:' + icsDiaSiguiente_(fin),
-      'SUMMARY:' + icsEsc_('Cortar cupo: ' + a.CLIENTE + ' +' + money_(num_(a.MONTO))),
-      'DESCRIPTION:' + icsEsc_('Aumento temporal de cupo que vence hoy: hacer el trámite de corte con el banco.\nCliente: ' + a.CLIENTE +
+      'SUMMARY:' + icsEsc_('Finalizar aumento: ' + a.CLIENTE + ' +' + money_(num_(a.MONTO))),
+      'DESCRIPTION:' + icsEsc_('Aumento temporal de cupo que vence hoy: hacer el trámite con el banco para finalizarlo.\nCliente: ' + a.CLIENTE +
         '\nAumento: +' + money_(num_(a.MONTO)) + '\nVigencia: ' + isoADMY_(ini) + ' al ' + isoADMY_(fin) +
-        (a.MOTIVO ? '\nMotivo: ' + a.MOTIVO : '') + '\n\nCuando lo cortes, marcalo en la app y este evento se quitara solo.'),
+        (a.MOTIVO ? '\nMotivo: ' + a.MOTIVO : '') + '\n\nCuando lo finalices, marcalo en la app y este evento se quitara solo.'),
       'TRANSP:TRANSPARENT',
       'STATUS:' + (metodo === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED')
     );
@@ -1436,8 +1456,8 @@ function enviarInvitacionIcs_(cfg, aumentos, esPrueba, metodo, estadoCierre) {
     }
     if (metodo !== 'CANCEL') {
       lineas.push(
-        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Cortar cupo mañana', 'TRIGGER:-PT15H', 'END:VALARM',
-        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Cortar cupo hoy', 'TRIGGER:PT9H', 'END:VALARM'
+        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Finalizar aumento mañana', 'TRIGGER:-PT15H', 'END:VALARM',
+        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Finalizar aumento hoy', 'TRIGGER:PT9H', 'END:VALARM'
       );
     }
     lineas.push('END:VEVENT');
@@ -1449,25 +1469,25 @@ function enviarInvitacionIcs_(cfg, aumentos, esPrueba, metodo, estadoCierre) {
   }).join('\r\n');
 
   const uno = aumentos.length === 1 ? aumentos[0] : null;
-  const detalle = uno ? uno.CLIENTE + ' +' + money_(num_(uno.MONTO)) + ' - corte ' + isoADMY_(aISO_(uno.FECHA_FIN)) : '';
+  const detalle = uno ? uno.CLIENTE + ' +' + money_(num_(uno.MONTO)) + ' - termina ' + isoADMY_(aISO_(uno.FECHA_FIN)) : '';
   let asunto, html;
   if (metodo === 'CANCEL') {
-    asunto = (estadoCierre === ESTADO_ANULADO ? 'Anulado: ' : 'Cupo cortado: ') + detalle;
-    html = '<p>' + (estadoCierre === ESTADO_ANULADO ? 'El aumento fue anulado' : 'El cupo ya fue cortado') +
+    asunto = (estadoCierre === ESTADO_ANULADO ? 'Anulado: ' : 'Aumento finalizado: ') + detalle;
+    html = '<p>' + (estadoCierre === ESTADO_ANULADO ? 'El aumento fue anulado' : 'El aumento ya fue finalizado') +
       '. Esta cancelación quita el evento de tu calendario.</p>';
   } else if (metodo === 'PUBLISH') {
-    asunto = aumentos.length + ' cortes de cupo para agregar al calendario';
-    html = '<p>Abre el adjunto <b>cortes-cupo.ics</b> para agregar los ' + aumentos.length + ' cortes a tu calendario de Outlook / Teams.</p>';
+    asunto = aumentos.length + ' aumentos para agregar al calendario';
+    html = '<p>Abre el adjunto <b>aumentos-cupo.ics</b> para agregar las ' + aumentos.length + ' fechas de término a tu calendario de Outlook / Teams.</p>';
   } else {
-    asunto = 'Corte de cupo: ' + detalle;
-    html = '<p>Recordatorio en tu calendario para el <b>' + (uno ? isoADMY_(aISO_(uno.FECHA_FIN)) : '') + '</b>: cortar el aumento de cupo de <b>' +
+    asunto = 'Termino de aumento: ' + detalle;
+    html = '<p>Recordatorio en tu calendario para el <b>' + (uno ? isoADMY_(aISO_(uno.FECHA_FIN)) : '') + '</b>: finalizar el aumento de cupo de <b>' +
       escHtml_(uno ? uno.CLIENTE : '') + '</b> (+' + (uno ? money_(num_(uno.MONTO)) : '') + ').</p>' +
-      '<p>Avisos a las 09:00 del día anterior y del mismo día. Al marcarlo como cortado en la app, el evento se quita solo.</p>';
+      '<p>Avisos a las 09:00 del día anterior y del mismo día. Al marcarlo como finalizado en la app, el evento se quita solo.</p>';
   }
   MailApp.sendEmail({
     to: cfg.email, subject: (esPrueba ? '[PRUEBA] ' : '') + asunto, name: APP_NAME,
     body: html.replace(/<[^>]+>/g, ''), htmlBody: html,
-    attachments: [Utilities.newBlob(ics, 'text/calendar; charset=UTF-8; method=' + metodo, metodo === 'PUBLISH' ? 'cortes-cupo.ics' : 'invite.ics')]
+    attachments: [Utilities.newBlob(ics, 'text/calendar; charset=UTF-8; method=' + metodo, metodo === 'PUBLISH' ? 'aumentos-cupo.ics' : 'invite.ics')]
   });
 }
 
@@ -1482,11 +1502,11 @@ function borrarEvento_(eventId) {
   } catch (e) { Logger.log('No se pudo borrar el evento: ' + e); }
 }
 
-function marcarEventoCortado_(eventId) {
+function marcarEventoFinalizado_(eventId) {
   try {
     const ev = CalendarApp.getDefaultCalendar().getEventById(eventId);
     if (ev) {
-      ev.setTitle(ev.getTitle().replace(/^⚠️ Cortar cupo/, '✅ Cupo cortado'));
+      ev.setTitle(ev.getTitle().replace(/^⚠️ Cortar cupo|^Finalizar aumento/, '✅ Aumento finalizado'));
       ev.removeAllReminders();
     }
   } catch (e) { Logger.log('No se pudo actualizar el evento: ' + e); }

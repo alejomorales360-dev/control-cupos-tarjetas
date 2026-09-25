@@ -48,7 +48,7 @@
   .b-POR_VENCER { background: var(--yellow-bg); color: var(--yellow); }
   .b-VIGENTE { background: var(--green-bg); color: var(--green); }
   .b-PROGRAMADO { background: var(--blue-bg); color: var(--blue); }
-  .b-CORTADO, .b-ANULADO { background: var(--gray-bg); color: var(--muted); }
+  .b-FINALIZADO, .b-CORTADO, .b-ANULADO { background: var(--gray-bg); color: var(--muted); }
   button, .btn { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; }
   button.primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
   button.ok { background: var(--green); color: #fff; border-color: var(--green); }
@@ -196,7 +196,7 @@
   <!-- PANEL -->
   <section class="tab active" id="tab-panel">
     <div class="cards">
-      <div class="stat red"><div class="n" id="s-vencidos">–</div><div class="l">Vencidos sin cortar</div></div>
+      <div class="stat red"><div class="n" id="s-vencidos">–</div><div class="l">Vencidos sin finalizar</div></div>
       <div class="stat orange"><div class="n" id="s-hoy">–</div><div class="l">Vencen hoy</div></div>
       <div class="stat yellow"><div class="n" id="s-proximos">–</div><div class="l">Próximos a vencer</div></div>
       <div class="stat green"><div class="n" id="s-vigentes">–</div><div class="l">Vigentes</div></div>
@@ -225,14 +225,14 @@
       <div class="toolbar">
         <input id="f-aum-q" placeholder="Buscar cliente o motivo…" oninput="renderAumentos()">
         <select id="f-aum-estado" onchange="renderAumentos()">
-          <option value="ABIERTOS">Abiertos (no cortados)</option>
+          <option value="ABIERTOS">Abiertos (no finalizados)</option>
           <option value="">Todos</option>
-          <option value="VENCIDO">Vencidos sin cortar</option>
+          <option value="VENCIDO">Vencidos sin finalizar</option>
           <option value="VENCE_HOY">Vencen hoy</option>
           <option value="POR_VENCER">Próximos a vencer</option>
           <option value="VIGENTE">Vigentes</option>
           <option value="PROGRAMADO">Programados</option>
-          <option value="CORTADO">Cortados</option>
+          <option value="FINALIZADO">Finalizados</option>
           <option value="ANULADO">Anulados</option>
         </select>
       </div>
@@ -252,7 +252,7 @@
         <select id="f-cli-filtro" onchange="renderClientes()">
           <option value="">Todos los clientes</option>
           <option value="aum">Con aumento vigente</option>
-          <option value="cortar">Por cortar (vencen pronto o vencidos)</option>
+          <option value="cortar">Por finalizar (vencen pronto o vencidos)</option>
           <option value="sinbase">Sin cupo base registrado</option>
         </select>
       </div>
@@ -274,9 +274,9 @@
       <div class="toolbar">
         <select id="r-tipo" onchange="renderReporte()">
           <option value="proximos">Próximos a caducar</option>
-          <option value="vencidos">Vencidos sin cortar</option>
+          <option value="vencidos">Vencidos sin finalizar</option>
           <option value="abiertos">Todos los aumentos abiertos</option>
-          <option value="calendario">Calendario de cortes por semana</option>
+          <option value="calendario">Calendario de términos por semana</option>
           <option value="periodo">Aumentos por período (histórico)</option>
           <option value="clientes">Cupos por cliente</option>
           <option value="bancos">Resumen por banco</option>
@@ -316,7 +316,7 @@
           <div class="field">
             <label>Días de aviso previo</label>
             <input id="cfg-dias" type="number" min="0" max="60">
-            <div class="hint">Avisa desde N días antes de la fecha de fin, luego el mismo día y cada día mientras no se marque como cortado.</div>
+            <div class="hint">Avisa desde N días antes de la fecha de fin, luego el mismo día y cada día mientras no se marque como finalizado.</div>
           </div>
           <div class="field">
             <label>Hora de la revisión diaria</label>
@@ -345,12 +345,12 @@
 
           <!-- CALENDARIO -->
           <div class="canal">
-            <div class="canal-h"><span class="canal-ico">📅</span><div><b>Calendario Outlook / Teams</b><div class="sub">Evento el día del corte, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
+            <div class="canal-h"><span class="canal-ico">📅</span><div><b>Calendario Outlook / Teams</b><div class="sub">Evento el día de término, con recordatorios</div></div><span class="estado" id="st-cal"></span></div>
             <div class="field check"><input type="checkbox" id="cfg-ics"><label for="cfg-ics" style="margin:0">Enviar una <b>invitación de calendario</b> al correo corporativo al crear cada aumento</label></div>
             <ul class="pasos" style="margin:-4px 0 12px">
               <li>Queda en tu calendario de Outlook, el mismo que ves en Teams.</li>
               <li>Avisos a las 09:00 del día anterior y del mismo día.</li>
-              <li>Al marcarlo <b>cortado</b> o <b>anulado</b>, llega la cancelación y el evento se quita solo.</li>
+              <li>Al marcarlo <b>finalizado</b> o <b>anulado</b>, llega la cancelación y el evento se quita solo.</li>
             </ul>
             <button type="button" class="small" onclick="probar('ics', this)">Enviarme invitación de prueba</button>
           </div>
@@ -493,7 +493,7 @@
     <div class="field"><label>Monto del aumento (USD) *</label><input id="a-monto" type="number" min="0.01" step="0.01" required oninput="previewAumento()"></div>
     <div class="grid2">
       <div class="field"><label>Desde *</label><input id="a-inicio" type="date" required onchange="previewAumento()"></div>
-      <div class="field"><label>Hasta (fecha de corte) *</label><input id="a-fin" type="date" required onchange="previewAumento()"></div>
+      <div class="field"><label>Hasta (fecha de término) *</label><input id="a-fin" type="date" required onchange="previewAumento()"></div>
     </div>
     <div class="preview" id="a-preview"></div>
     <div class="field"><label>Motivo / referencia</label><input id="a-motivo" placeholder="Ej: viaje, compra puntual, N° de solicitud…"></div>
@@ -504,7 +504,7 @@
   </form>
 </dialog>
 
-<!-- DIALOGO CERRAR (cortado / anulado) -->
+<!-- DIALOGO CERRAR (finalizado / anulado) -->
 <dialog id="dlg-cerrar">
   <form onsubmit="confirmarCierre(event)">
     <h3 id="dlg-cerrar-titulo"></h3>
@@ -537,10 +537,10 @@
 <script>
   var DATA = { clientes: [], aumentos: [], resumen: {} };
   var ESTADOS = {
-    VENCIDO: 'Vencido · cortar', VENCE_HOY: 'Vence hoy', POR_VENCER: 'Por vencer',
-    VIGENTE: 'Vigente', PROGRAMADO: 'Programado', CORTADO: 'Cortado', ANULADO: 'Anulado'
+    VENCIDO: 'Vencido · finalizar', VENCE_HOY: 'Vence hoy', POR_VENCER: 'Por vencer',
+    VIGENTE: 'Vigente', PROGRAMADO: 'Programado', FINALIZADO: 'Finalizado', ANULADO: 'Anulado'
   };
-  var PRIORIDAD = { VENCIDO: 0, VENCE_HOY: 1, POR_VENCER: 2, VIGENTE: 3, PROGRAMADO: 4, CORTADO: 5, ANULADO: 6 };
+  var PRIORIDAD = { VENCIDO: 0, VENCE_HOY: 1, POR_VENCER: 2, VIGENTE: 3, PROGRAMADO: 4, FINALIZADO: 5, ANULADO: 6 };
 
   // ── utilidades ──────────────────────────────────────────
   function $(id) { return document.getElementById(id); }
@@ -549,7 +549,7 @@
   function dmy(iso) { if (!iso) return ''; var p = iso.split('-'); return p[2] + '-' + p[1] + '-' + p[0]; }
   function diasTexto(a) {
     var d = a.diasRestantes;
-    if (a.estadoCalc === 'CORTADO' || a.estadoCalc === 'ANULADO') return a.fechaCorte ? 'el ' + dmy(a.fechaCorte) : '';
+    if (a.estadoCalc === 'FINALIZADO' || a.estadoCalc === 'ANULADO') return a.fechaCorte ? 'el ' + dmy(a.fechaCorte) : '';
     if (a.estadoCalc === 'PROGRAMADO') return 'inicia el ' + dmy(a.inicio);
     if (d < 0) return 'venció hace ' + (-d) + ' día' + (d === -1 ? '' : 's');
     if (d === 0) return 'hoy';
@@ -658,7 +658,7 @@
   // Indicador de carga: barra arriba siempre; ventana con texto si tarda más de 300 ms
   var TEXTOS_CARGA = {
     iniciarSesion: 'Entrando…', obtenerDatos: 'Cargando datos…', obtenerConfig: 'Cargando configuración…', listarUsuarios: 'Cargando usuarios…',
-    guardarCliente: 'Guardando cliente…', guardarAumento: 'Guardando aumento…', marcarCortado: 'Marcando como cortado…', anularAumento: 'Anulando…',
+    guardarCliente: 'Guardando cliente…', guardarAumento: 'Guardando aumento…', marcarCortado: 'Marcando como finalizado…', anularAumento: 'Anulando…',
     reabrirAumento: 'Reabriendo…', guardarConfig: 'Guardando configuración…', enviarPrueba: 'Enviando prueba…', revisarAhora: 'Revisando vencimientos y enviando alertas…',
     importarDatos: 'Procesando Excel…', guardarUsuario: 'Guardando usuario…', cambiarCredenciales: 'Cambiando clave…'
   };
@@ -703,6 +703,11 @@
   // ── carga ─────────────────────────────────────────────
   function cargar() {
     call('obtenerDatos', [], function (d) {
+      // Compatibilidad: si el servidor aún usa el estado antiguo CORTADO
+      d.aumentos.forEach(function (a) {
+        if (a.estadoCalc === 'CORTADO') a.estadoCalc = 'FINALIZADO';
+        if (a.estado === 'CORTADO') a.estado = 'FINALIZADO';
+      });
       DATA = d;
       $('hoy').textContent = 'Hoy: ' + dmy(d.hoy);
       aplicarSesion(d.sesion);
@@ -723,9 +728,9 @@
     var b = [];
     if (a.estado === 'ACTIVO') {
       if (a.estadoCalc === 'VENCIDO' || a.estadoCalc === 'VENCE_HOY' || a.estadoCalc === 'POR_VENCER')
-        b.push('<button class="ok small" onclick="abrirCierre(\'' + a.id + '\',\'cortar\')">✓ Marcar cortado</button>');
+        b.push('<button class="ok small" onclick="abrirCierre(\'' + a.id + '\',\'finalizar\')">✓ Marcar finalizado</button>');
       else
-        b.push('<button class="small" onclick="abrirCierre(\'' + a.id + '\',\'cortar\')">Cortado</button>');
+        b.push('<button class="small" onclick="abrirCierre(\'' + a.id + '\',\'finalizar\')">Finalizar</button>');
       b.push('<button class="small" onclick="abrirAumento(\'' + a.id + '\')">Editar</button>');
       b.push('<button class="danger small" onclick="abrirCierre(\'' + a.id + '\',\'anular\')">Anular</button>');
     } else {
@@ -754,7 +759,7 @@
       return '<tr class="alert-row ' + a.estadoCalc + '">' + celdaCliente(a) +
         '<td class="num" data-l="Aumento">+' + money(a.monto) + '</td>' + celdaVigencia(a) + celdaEstado(a) +
         '<td class="num" data-l="Cupo base">' + cupo(a.cupoBase) + '</td><td>' + botonesAumento(a) + '</td></tr>';
-    }).join('') : '<tr><td colspan="6" class="empty">✅ Nada pendiente. No hay cupos por cortar en los próximos ' + DATA.diasAviso + ' días.</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="empty">✅ Nada pendiente. No hay aumentos por finalizar en los próximos ' + DATA.diasAviso + ' días.</td></tr>';
 
     var prog = ordenar(DATA.aumentos.filter(function (a) { return a.estadoCalc === 'PROGRAMADO'; })).sort(function (x, y) { return x.inicio < y.inicio ? -1 : 1; }).slice(0, 10);
     $('t-programados').innerHTML = prog.length ? prog.map(function (a) {
@@ -779,7 +784,7 @@
     }).join('') : '<tr><td colspan="6" class="empty">No hay aumentos con ese filtro.</td></tr>';
   }
 
-  // Aumentos abiertos (no cortados) por cliente, con el estado más urgente
+  // Aumentos abiertos (no finalizados) por cliente, con el estado más urgente
   function aumentosAbiertos(idCliente) {
     var abiertos = DATA.aumentos.filter(function (a) {
       return a.idCliente === idCliente && ['VIGENTE', 'POR_VENCER', 'VENCE_HOY', 'VENCIDO'].indexOf(a.estadoCalc) >= 0;
@@ -925,7 +930,7 @@
       '<span class="badge b-VIGENTE">' + r.clientesNuevos + ' clientes nuevos</span>' +
       (r.clientesActualizados ? '<span class="badge b-PROGRAMADO">' + r.clientesActualizados + ' clientes a actualizar</span>' : '') +
       '<span class="badge b-POR_VENCER">' + r.aumentosNuevos + ' aumentos nuevos</span>' +
-      (r.omitidos ? '<span class="badge b-CORTADO">' + r.omitidos + ' aumentos ya existían</span>' : '') +
+      (r.omitidos ? '<span class="badge b-FINALIZADO">' + r.omitidos + ' aumentos ya existían</span>' : '') +
       (r.errores.length ? '<span class="badge b-VENCIDO">' + r.errores.length + ' filas con error (se omiten)</span>' : '') +
       '</div><div class="imp-table"><table><thead><tr><th>Fila</th><th>Nombre</th><th>Cliente</th><th>Aumento</th></tr></thead><tbody>' +
       r.filas.map(function (f) {
@@ -975,27 +980,27 @@
     ];
     if (tipo === 'proximos') {
       var limite = sumarDias(hoy, horizonte);
-      return { titulo: 'Aumentos próximos a caducar', desc: 'Aumentos no cortados que terminan entre hoy y ' + (horizonte >= 9999 ? 'cualquier fecha' : dmy(limite)) + ', del más próximo al más lejano.',
+      return { titulo: 'Aumentos próximos a caducar', desc: 'Aumentos no finalizados que terminan entre hoy y ' + (horizonte >= 9999 ? 'cualquier fecha' : dmy(limite)) + ', del más próximo al más lejano.',
         cols: colsAum, filas: aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0 && a.fin >= hoy && a.fin <= limite; }).sort(porFin).map(conCalc) };
     }
     if (tipo === 'vencidos') {
-      return { titulo: 'Aumentos vencidos sin cortar', desc: 'Ya pasó su fecha de fin y no están marcados como cortados: hay que hacer el trámite con el banco.',
+      return { titulo: 'Aumentos vencidos sin finalizar', desc: 'Ya pasó su fecha de término y no están marcados como finalizados: hay que hacer el trámite con el banco.',
         cols: [{ h: 'Venció', k: 'fin', t: 'date' }, { h: 'Días de atraso', k: 'atraso', t: 'num' }].concat(colsAum.slice(2)),
         filas: aum.filter(function (a) { return a.estadoCalc === 'VENCIDO'; }).sort(porFin).map(function (a) { var r = conCalc(a); r.atraso = -a.diasRestantes; return r; }) };
     }
     if (tipo === 'abiertos') {
-      return { titulo: 'Todos los aumentos abiertos', desc: 'Programados, vigentes, por vencer y vencidos sin cortar.',
+      return { titulo: 'Todos los aumentos abiertos', desc: 'Programados, vigentes, por vencer y vencidos sin finalizar.',
         cols: colsAum, filas: aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0; }).sort(porFin).map(conCalc) };
     }
     if (tipo === 'calendario') {
       var filas = aum.filter(function (a) { return ABIERTOS.indexOf(a.estadoCalc) >= 0; }).sort(porFin).map(function (a) {
-        var r = conCalc(a); var l = a.fin < hoy ? 'VENCIDOS' : lunes(a.fin); r.semana = l === 'VENCIDOS' ? 'Vencidos sin cortar' : 'Semana del ' + dmy(l) + ' al ' + dmy(sumarDias(l, 6)); return r;
+        var r = conCalc(a); var l = a.fin < hoy ? 'VENCIDOS' : lunes(a.fin); r.semana = l === 'VENCIDOS' ? 'Vencidos sin finalizar' : 'Semana del ' + dmy(l) + ' al ' + dmy(sumarDias(l, 6)); return r;
       });
-      return { titulo: 'Calendario de cortes por semana', desc: 'Cortes pendientes agrupados por la semana en que vencen.', grupo: 'semana', cols: colsAum, filas: filas };
+      return { titulo: 'Calendario de términos por semana', desc: 'Aumentos pendientes de finalizar, agrupados por la semana en que vencen.', grupo: 'semana', cols: colsAum, filas: filas };
     }
     if (tipo === 'periodo') {
       var desde = $('r-desde').value || sumarDias(hoy, -30), hasta = $('r-hasta').value || sumarDias(hoy, 30);
-      return { titulo: 'Aumentos del ' + dmy(desde) + ' al ' + dmy(hasta), desc: 'Todos los aumentos (incluidos cortados y anulados) cuya vigencia toca el período.',
+      return { titulo: 'Aumentos del ' + dmy(desde) + ' al ' + dmy(hasta), desc: 'Todos los aumentos (incluidos finalizados y anulados) cuya vigencia toca el período.',
         cols: [{ h: 'Desde', k: 'inicio', t: 'date' }, { h: 'Hasta', k: 'fin', t: 'date' }, { h: 'Cliente', k: 'cliente' }, { h: 'Banco / tarjeta', k: 'tarjetaTxt' },
           { h: 'Aumento', k: 'monto', t: 'money', total: true }, { h: 'Estado', k: 'estadoTxt' }, { h: 'Fecha cierre', k: 'fechaCorte', t: 'date' },
           { h: 'Nota de cierre', k: 'notaCorte' }, { h: 'Motivo', k: 'motivo' }],
@@ -1009,7 +1014,7 @@
       }).sort(function (x, y) { return (x._p - y._p) || x.cliente.localeCompare(y.cliente); });
       return { titulo: 'Cupos por cliente', desc: 'Cupo base, aumento abierto y cupo actual de cada cliente (primero los que tienen aumento).',
         cols: [{ h: 'Cliente', k: 'cliente' }, { h: 'Documento', k: 'documento' }, { h: 'Banco / tarjeta', k: 'tarjetaTxt' }, { h: 'Cupo base', k: 'cupoBase', t: 'money', total: true },
-          { h: 'Aumento abierto', k: 'monto', t: 'money', total: true }, { h: 'Cupo actual', k: 'cupoCon', t: 'money', total: true }, { h: 'Próximo corte', k: 'fin', t: 'date' },
+          { h: 'Aumento abierto', k: 'monto', t: 'money', total: true }, { h: 'Cupo actual', k: 'cupoCon', t: 'money', total: true }, { h: 'Próximo término', k: 'fin', t: 'date' },
           { h: 'Estado', k: 'estadoTxt' }, { h: 'Activo', k: 'activo' }], filas: filasC };
     }
     // bancos
@@ -1024,8 +1029,8 @@
     });
     return { titulo: 'Resumen por banco', desc: 'Aumentos abiertos agrupados por banco.',
       cols: [{ h: 'Banco', k: 'banco' }, { h: 'Aumentos', k: 'n', t: 'num', total: true }, { h: 'Clientes', k: 'nClientes', t: 'num', total: true },
-        { h: 'Monto aumentado', k: 'monto', t: 'money', total: true }, { h: 'Vencidos sin cortar', k: 'vencidos', t: 'num', total: true },
-        { h: 'Vencen en 7 días', k: 'prox7', t: 'num', total: true }, { h: 'Próximo corte', k: 'fin', t: 'date' }],
+        { h: 'Monto aumentado', k: 'monto', t: 'money', total: true }, { h: 'Vencidos sin finalizar', k: 'vencidos', t: 'num', total: true },
+        { h: 'Vencen en 7 días', k: 'prox7', t: 'num', total: true }, { h: 'Próximo término', k: 'fin', t: 'date' }],
       filas: Object.keys(g).map(function (k) { var x = g[k]; x.nClientes = Object.keys(x.clientes).length; return x; }).sort(function (x, y) { return y.monto - x.monto; }) };
   }
 
@@ -1051,8 +1056,8 @@
       '<div class="stat blue"><div class="v">' + money(monto) + '</div><div class="l">Monto aumentado hoy</div></div>' +
       '<div class="stat green"><div class="n">' + Object.keys(clientes).length + '</div><div class="l">Clientes con aumento</div></div>' +
       '<div class="stat yellow"><div class="n">' + prox7.length + '</div><div class="l">Vencen en 7 días (' + money(prox7.reduce(function (s, a) { return s + a.monto; }, 0)) + ')</div></div>' +
-      '<div class="stat red"><div class="n">' + DATA.resumen.vencidos + '</div><div class="l">Vencidos sin cortar</div></div>' +
-      '<div class="stat orange"><div class="v">' + (sig ? dmy(sig.fin) : '—') + '</div><div class="l">' + (sig ? 'Próximo corte: ' + esc(sig.cliente) : 'Sin cortes pendientes') + '</div></div>';
+      '<div class="stat red"><div class="n">' + DATA.resumen.vencidos + '</div><div class="l">Vencidos sin finalizar</div></div>' +
+      '<div class="stat orange"><div class="v">' + (sig ? dmy(sig.fin) : '—') + '</div><div class="l">' + (sig ? 'Próximo término: ' + esc(sig.cliente) : 'Sin aumentos pendientes') + '</div></div>';
   }
 
   function renderReporte() {
@@ -1214,7 +1219,7 @@
       if (fin < ini) p.push('<span style="color:var(--red)">La fecha de fin es anterior a la de inicio.</span>');
       else {
         var dias = Math.round((new Date(fin) - new Date(ini)) / 86400000) + 1;
-        p.push(dias + ' día' + (dias === 1 ? '' : 's') + ' · recibirás la alerta de corte el <b>' + dmy(fin) + '</b>' +
+        p.push(dias + ' día' + (dias === 1 ? '' : 's') + ' · recibirás la alerta de término el <b>' + dmy(fin) + '</b>' +
           (DATA.diasAviso ? ' (y aviso previo desde ' + DATA.diasAviso + ' días antes)' : ''));
       }
     }
@@ -1229,21 +1234,21 @@
   function abrirCierre(id, accion) {
     var a = DATA.aumentos.filter(function (x) { return x.id === id; })[0];
     $('x-id').value = id; $('x-accion').value = accion; $('x-nota').value = '';
-    var cortar = accion === 'cortar';
-    $('dlg-cerrar-titulo').textContent = cortar ? 'Confirmar corte de cupo' : 'Anular aumento';
-    $('x-label').textContent = cortar ? 'N° de trámite / nota (opcional)' : 'Motivo de anulación (opcional)';
-    $('x-btn').className = cortar ? 'ok' : 'danger';
-    $('x-btn').textContent = cortar ? '✓ Ya lo corté con el banco' : 'Anular';
+    var finalizar = accion === 'finalizar';
+    $('dlg-cerrar-titulo').textContent = finalizar ? 'Finalizar aumento' : 'Anular aumento';
+    $('x-label').textContent = finalizar ? 'N° de trámite / nota (opcional)' : 'Motivo de anulación (opcional)';
+    $('x-btn').className = finalizar ? 'ok' : 'danger';
+    $('x-btn').textContent = finalizar ? '✓ Ya lo finalicé con el banco' : 'Anular';
     $('x-detalle').innerHTML = '<b>' + esc(a.cliente) + '</b> · ' + esc(tarjetaTxt(a.banco, a.tarjeta)) +
       '<br>Aumento de <b>+' + money(a.monto) + '</b> del ' + dmy(a.inicio) + ' al ' + dmy(a.fin) +
-      (cortar ? (a.cupoBase ? '<br>El cupo vuelve a <b>' + money(a.cupoBase) + '</b>.' : '') + '<br>Dejarás de recibir alertas de este aumento.' : '<br>Se usa si el aumento no se llegó a aplicar.');
+      (finalizar ? (a.cupoBase ? '<br>El cupo vuelve a <b>' + money(a.cupoBase) + '</b>.' : '') + '<br>Dejarás de recibir alertas de este aumento.' : '<br>Se usa si el aumento no se llegó a aplicar.');
     $('dlg-cerrar').showModal();
   }
   function confirmarCierre(e) {
     e.preventDefault();
-    var fn = $('x-accion').value === 'cortar' ? 'marcarCortado' : 'anularAumento';
+    var fn = $('x-accion').value === 'finalizar' ? 'marcarCortado' : 'anularAumento';
     call(fn, [$('x-id').value, $('x-nota').value], function () {
-      cerrar('dlg-cerrar'); toast(fn === 'marcarCortado' ? 'Marcado como cortado' : 'Aumento anulado'); cargar();
+      cerrar('dlg-cerrar'); toast(fn === 'marcarCortado' ? 'Aumento finalizado' : 'Aumento anulado'); cargar();
     }, e.submitter);
   }
   function reabrir(id) {
@@ -1305,7 +1310,7 @@
     USUARIOS = lista;
     $('t-usuarios').innerHTML = lista.map(function (u) {
       return '<tr' + (u.activo ? '' : ' style="opacity:.55"') + '><td data-l=""><b>' + esc(u.usuario) + '</b><div class="sub">' + esc(u.nombre) + '</div></td>' +
-        '<td data-l="Rol"><span class="badge ' + (u.rol === 'ADMIN' ? 'b-PROGRAMADO' : 'b-CORTADO') + '">' + u.rol + '</span></td>' +
+        '<td data-l="Rol"><span class="badge ' + (u.rol === 'ADMIN' ? 'b-PROGRAMADO' : 'b-FINALIZADO') + '">' + u.rol + '</span></td>' +
         '<td data-l="Estado">' + (u.activo ? 'Activo' : 'Inactivo') + (u.claveTemporal ? ' <span class="badge b-POR_VENCER">clave temporal</span>' : '') + '</td>' +
         '<td data-l="Último acceso">' + esc(u.ultimoAcceso || '—') + '</td>' +
         '<td><div class="actions"><button class="small" onclick="abrirUsuario(\'' + esc(u.usuario) + '\')">Editar</button></div></td></tr>';

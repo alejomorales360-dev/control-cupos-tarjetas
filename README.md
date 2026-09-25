@@ -2,12 +2,12 @@
 
 **Entrar a la app:** <https://alejomorales360-dev.github.io/control-cupos-tarjetas/> (pide usuario y clave)
 
-App web en Google Apps Script para llevar el registro de clientes, su **cupo base** y los **aumentos temporales de cupo** (monto + rango de fechas). Todos los días revisa los vencimientos y te **envía una alerta** para que hagas el trámite de corte con el banco.
+App web en Google Apps Script para llevar el registro de clientes, su **cupo base** y los **aumentos temporales de cupo** (monto + rango de fechas). Todos los días revisa los vencimientos y te **envía una alerta** para que hagas el trámite con el banco y lo marques como finalizado.
 
 > Ejemplo: a Pedrito (cupo base $5.000) se le aumentan **$2.000** del **29-09-2026 al 15-10-2026**.
 > - 12-10 → aviso previo "faltan 3 días"
 > - 15-10 → alerta "**vence hoy**, hacer trámite con el banco"
-> - 16-10 en adelante → alerta diaria "**vencido sin cortar**" hasta que lo marques como *Cortado* en la app
+> - 16-10 en adelante → alerta diaria "**vencido sin finalizar**" hasta que lo marques como *Finalizado* en la app
 
 ## Arquitectura
 
@@ -36,9 +36,9 @@ La interfaz llama a la API con `fetch` POST (`Content-Type: text/plain`, para ev
 | Programado | Todavía no empieza |
 | Vigente | En curso |
 | Por vencer | Termina dentro de los próximos *N* días (configurable, por defecto 3) |
-| Vence hoy | Hoy es la fecha de fin → hacer el corte |
-| Vencido · cortar | Ya pasó la fecha de fin y no está marcado como cortado (alerta todos los días) |
-| Cortado / Anulado | Cerrado; ya no genera alertas |
+| Vence hoy | Hoy es la fecha de término → hacer el trámite con el banco |
+| Vencido · finalizar | Ya pasó la fecha de término y no está marcado como finalizado (alerta todos los días) |
+| Finalizado / Anulado | Cerrado; ya no genera alertas |
 
 ## Instalación (una sola vez)
 
@@ -46,7 +46,7 @@ La interfaz llama a la API con `fetch` POST (`Content-Type: text/plain`, para ev
    *Alternativa:* un proyecto suelto en <https://script.google.com>, pegando la URL de la planilla en la constante `PLANILLA_URL` de `Codigo.gs`.
 2. Reemplaza el contenido de `Código.gs` por [`Codigo.gs`](Codigo.gs). ⚙️ *Configuración del proyecto* → mostrar `appsscript.json` y pega [`appsscript.json`](appsscript.json) (ajusta `timeZone`).
 3. Elige la función **`crearBaseDeDatos`** → **▶ Ejecutar** → acepta los permisos. Crea en la planilla:
-   - Hojas `CLIENTES`, `AUMENTOS`, `HISTORIAL`, `USUARIOS`, `CONFIG`, `SESIONES` con encabezados, notas explicativas en cada columna, anchos, formatos, listas desplegables (SI/NO, ADMIN/OPERADOR, ACTIVO/CORTADO/ANULADO) y colores (en AUMENTOS: rojo = vencido sin cortar, naranjo = vence hoy).
+   - Hojas `CLIENTES`, `AUMENTOS`, `HISTORIAL`, `USUARIOS`, `CONFIG`, `SESIONES` con encabezados, notas explicativas en cada columna, anchos, formatos, listas desplegables (SI/NO, ADMIN/OPERADOR, ACTIVO/FINALIZADO/ANULADO) y colores (en AUMENTOS: rojo = vencido sin finalizar, naranjo = vence hoy).
    - `CONFIG` con todos los ajustes y valores por defecto (correo de alertas = tu cuenta).
    - Usuario **`admin`** con clave aleatoria → aparece en el **Registro de ejecución**.
    - Disparador diario de alertas.
@@ -93,8 +93,8 @@ En la app → **Configuración**. Todo sale por correo desde la cuenta de Google
 
 | Destino | Qué recibes | Cómo se activa |
 |---|---|---|
-| 📧 **Correo corporativo** | Resumen diario (por vencer, vence hoy, vencidos sin cortar) | Escribe tu(s) correo(s) corporativo(s). |
-| 📅 **Calendario Outlook / Teams** | Al crear un aumento: **invitación de reunión** de día completo en la fecha de corte, con avisos a las 09:00 del día anterior y del mismo día. Al marcarlo **cortado** o **anulado** llega la **cancelación** y el evento se quita solo. Al reabrirlo se vuelve a enviar. | Casilla activada por defecto. |
+| 📧 **Correo corporativo** | Resumen diario (por vencer, vence hoy, vencidos sin finalizar) | Escribe tu(s) correo(s) corporativo(s). |
+| 📅 **Calendario Outlook / Teams** | Al crear un aumento: **invitación de reunión** de día completo en la fecha de término, con avisos a las 09:00 del día anterior y del mismo día. Al marcarlo **finalizado** o **anulado** llega la **cancelación** y el evento se quita solo. Al reabrirlo se vuelve a enviar. | Casilla activada por defecto. |
 | 🟪 **Canal de Teams** (opcional) | El mismo resumen diario publicado en un canal | Teams → canal → **•••** → **Obtener dirección de correo electrónico** → en *Configuración avanzada* permite que **cualquiera** envíe correos → pega la dirección (`…@….teams.ms`). |
 
 Cada destino tiene su botón **Probar**. Al importar desde Excel se envía una invitación por aumento (hasta 20; si son más, un solo correo con un `.ics` con todos).
